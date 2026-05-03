@@ -19,6 +19,11 @@ RobusPredictor, es una libreria en Ptyhon orientada al desarrollo de modelos pre
 
 Se recomiendo el uso de un entorno virtual.
 
+Documentos:
+- Manual de instalacion
+- Manual de creacion de ambiente
+- Manual de uso
+
 # Uso 
 Ejemplo básico de RobusPredictor
 
