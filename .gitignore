@@ -1,2 +1,18 @@
 NoSeSube
 *.csv
+
+# Entornos virtuales
+venv/
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Package/build
+*.egg-info/
+build/
+dist/
+
+# VS Code
+.vscode/
