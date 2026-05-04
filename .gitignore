@@ -1,5 +1,7 @@
 NoSeSube
 *.csv
+debug_valores_anomalos
+catboost_info/
 
 # Entornos virtuales
 venv/
