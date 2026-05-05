@@ -1,7 +1,7 @@
 import pandas as pd
 
 # Funcion que valida los parametros para robuspredictor
-def validate_params(self, n_min, n_max, n_dom, mean, std):
+def validate_params(n_min, n_max, n_dom, mean_max, mean_min, std):
     if not isinstance(n_min, int):
         raise TypeError("n_min debe ser un número entero.")
 
@@ -11,8 +11,11 @@ def validate_params(self, n_min, n_max, n_dom, mean, std):
     if not isinstance(n_dom, int):
         raise TypeError("n_dom debe ser un número entero.")
 
-    if not isinstance(mean, (int, float)):
-        raise TypeError("mean debe ser un número numérico: int o float.")
+    if not isinstance(mean_max, (int, float)):
+        raise TypeError("mean_max debe ser un número numérico: int o float.")
+    
+    if not isinstance(mean_min, (int, float)):
+        raise TypeError("mean_min debe ser un número numérico: int o float.")
 
     if not isinstance(std, (int, float)):
         raise TypeError("std debe ser un número numérico: int o float.")
@@ -51,3 +54,12 @@ def validate_fit_data(x, y):
 
     if y.empty:
         raise ValueError("La variable objetivo no puede estar vacío.")
+    
+    
+# Funcion que valida el parametro recibido en .predict(), que sea un dataframe y que contenga información
+def validate_predict_data(X):
+    if not isinstance(X, pd.DataFrame):
+        raise TypeError("X debe ser un DataFrame de pandas.")
+
+    if X.empty:
+        raise ValueError("X no puede estar vacío.")

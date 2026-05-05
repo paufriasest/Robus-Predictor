@@ -1,88 +1,105 @@
 # Funcion para dividir el grupo de datos en dominios
 def split_domains(X, n_dom):
     
-    # Divide los datos en n_dom dominios temporales.
+    # Obtiene la cantidad total de registros del DataFrame
     total_rows = len(X)
+    
     # El tama;o del dominio viene determinado por la cantidad de filas en el numero de dominio
+    # si hay 1000 filas y n_dom = 2, cada dominio tendrá 500 filas
     domain_size = total_rows // n_dom
 
     # aqui se guardaran los dominios, cada dominio estar en un index
     domains = []
 
-    # recorrido por cada dominio
+    # Recorre la cantidad de dominios solicitados
     for i in range(n_dom):
+        # Calcula la posicioin inicial del dominio actual
         start = i * domain_size
 
-        # verificar si esta en el ultimo dominio
+        # verificar si esta en el ultimo dominio, se toma hasta el final del DataFrame
+        # para evitar perder filas cuando la división no es exacta
         if i == n_dom - 1:
             end = total_rows
         else:
             end = (i + 1) * domain_size
 
-        # guarda los dominios 
+        # Guarda los indices de las filas que pertenecen al dominio actual.
         domains.append(X.iloc[start:end].index)
 
+    # devuelve las liosta de los dominios
     return domains
 
 # Funcion que seleccionar[a los cubos estables]
-def select_stable_cubes(X, y, cubes, n_dom, mean, std):
-   
-    # comenzamos la lista de cubos estables
-    stable_cubes = []
-
-    # se dividen los datos segun la funcion anterior
+def select_stable_cubes(X, y, cubes, n_dom, mean_max, mean_min, std):
+    
+    #lista que guarda todos los cubos estables
+    stable = []
+    
+    # aqui se usa la funcion anterior
     domains = split_domains(X, n_dom)
 
-    # recorrer cada cubo
-    for cube_index in cubes:
-        domain_means = []
-        domain_counts = []
+    # recorre cada cubo generado en el particionamiento
+    for cube in cubes:
+        
+        #guardamos los indices de las filas que pértecenen los cubos
+        idx = cube["index"]
 
-        # recorrer cada espacio temporal
-        for domain_index in domains:
-            # Intersección entre el cubo y el dominio temporal
-            cube_domain_index = cube_index.intersection(domain_index)
+        # lista donde se guarda el promedio de cada dominio 
+        means = []
 
-            # si el cubo no tiene datos, se salta al sigueinte dominio
-            if len(cube_domain_index) == 0:
-                continue
+        #recorre cada dominio temporal
+        for d in domains:
             
-            # obtienes los valores de la variable target para las filas que estan ese punto del cubo y dominio
-            y_values = y.loc[cube_domain_index]
-            # se calcula el promedio de y dentro de se cubo y dominio
-            domain_mean = y_values.mean()
-            domain_count = len(y_values)
+            #obtiene la interseccion filas que son del cubo y filas que pertenecen al dominio actual
+            inter = idx.intersection(d)
 
-            # guarda el promedio dentro dentro de la lista
-            domain_means.append(domain_mean)
-            domain_counts.append(domain_count)
+            # si el cubo no teine datos dentro del dominio se continua con el otro
+            if len(inter) == 0:
+                continue
 
-        # Si el cubo no tiene informaci[on] en todos los dominios se descarta
-        if len(domain_means) < n_dom:
+            # obtiene los vlores de las variables objetivos correcponditen
+            # a las filñas que estan dentro del cubo y del dominio
+            y_vals = y.loc[inter]
+            
+            # calcula el promedio de la variable objetivo en este dominio
+            means.append(y_vals.mean())
+
+        # si el cubo no tiene presencia en todos los dominios no s epuede evaluar sue stabilidad
+        # se descarta
+        if len(means) < n_dom:
             continue
 
-        min_mean = min(domain_means)
-        max_mean = max(domain_means)
+        # menor promedio entre los dominios
+        min_mean = min(means)
+        
+        #mayor promedio entre los domiunios
+        max_mean = max(means)
 
-        # Evita división por cero
+        # evita la 
         if max_mean == 0:
             continue
 
-        # Desviación porcentual máxima respecto al promedio del cubo
+        # calcula la varion porcentual entre el dominio con mayor y menor promedio, entre menor es mas estable el cubo
         variation = (max_mean - min_mean) / abs(max_mean)
+        
+        
+        # calcula el valor predictivo del cubo 
+        prediction_value = sum(means) / len(means)
 
-        # Criterios de estabilidad
-        if min_mean >= mean and variation <= std:
-            stable_cubes.append(
-                {
-                    "index": cube_index,
-                    "domain_means": domain_means,
-                    "domain_counts": domain_counts,
-                    "min_mean": min_mean,
-                    "max_mean": max_mean,
-                    "variation": variation,
-                    "prediction_value": sum(domain_means) / len(domain_means),
-                }
-            )
+        # Criterio de selección:
+        # - El valor predictivo debe estar dentro del rango permitido
+        #    por mean_min y mean_max
+        # - La variación entre dominios debe ser menor o igual a std
+        if (
+            mean_min <= prediction_value <= mean_max
+            and variation <= std
+        ):
+             # Si cumple los criterios, se guarda como cubo estable
+            stable.append({
+                "bounds": cube["bounds"],
+                "prediction_value": prediction_value,
+                "variation": variation,
+            })
 
-    return stable_cubes
+  # Retorna la lista de cubos estables seleccionados
+    return stable
