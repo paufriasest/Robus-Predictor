@@ -1,8 +1,16 @@
 from pathlib import Path
 import pandas as pd
 import numpy as np
+import time
 from prophet import Prophet
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import (
+    mean_absolute_error,
+    mean_squared_error,
+    r2_score,
+    mean_absolute_percentage_error,
+    median_absolute_error,
+    max_error,
+)
 
 # 1. Rutas del Proyecto
 ROOT_DIR = Path(__file__).resolve().parents[3]
@@ -12,7 +20,7 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "benchmark_result"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 # 2. Carga de Datos
-ENTRENAMIENTO = pd.read_csv(TRAINING_PATH)
+ENTRENAMIENTO = pd.read_csv(TRAINING_PATH).head(5000)
 VALIDACION = pd.read_csv(VALIDATION_PATH)
 
 features = ['var1','var2','var3','var4','var5','var6','var7','var8','var9','var10','var11','var12','var13']
@@ -48,10 +56,13 @@ for feature in features:
     m.add_regressor(feature)
 
 print("Entrenando Prophet (esto puede tardar un poco más que los otros modelos)...")
+start_time = time.perf_counter()
 m.fit(train_p)
 
 # 5. Predicción
 forecast = m.predict(valid_p)
+end_time = time.perf_counter()
+execution_time = end_time - start_time
 VALIDACION['PREDICCION_PROPHET'] = forecast['yhat'].values
 
 # 6. Evaluación (Top 5% Riesgo)
@@ -66,14 +77,31 @@ y_true = VALIDACION[target]
 y_pred = VALIDACION['PREDICCION_PROPHET']
 mae = mean_absolute_error(y_true, y_pred)
 rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+r2 = r2_score(y_true, y_pred)
+mape = mean_absolute_percentage_error(y_true, y_pred)
+medae = median_absolute_error(y_true, y_pred)
+m_error = max_error(y_true, y_pred)
+log_cosh = np.log(np.cosh(y_pred - y_true)).mean()
+y_true_diff = np.diff(y_true)
+y_pred_diff = np.diff(y_pred)
+da = np.mean(np.sign(y_true_diff) == np.sign(y_pred_diff))
 
 # 7. Reporte
 print("-" * 50)
 print(" BENCHMARK: FACEBOOK PROPHET ")
 print("-" * 50)
+print(f"Tiempo de ejecución: {execution_time:.4f} segundos")
 print(f"Precisión en grupo de alto riesgo (Top 5%): {promedio_arriendo:.4f}")
-print(f"MAE: {mae:.4f}")
-print(f"RMSE: {rmse:.4f}")
+print("-" * 25)
+print(f"MAE (Error Absoluto Medio): {mae:.4f}")
+print(f"RMSE (Raíz Error Cuadrático Medio): {rmse:.4f}")
+print(f"MedAE (Error Absoluto Mediano): {medae:.4f}")
+print(f"Max Error (Error Máximo): {m_error:.4f}")
+print("-" * 25)
+print(f"R² (Coef. de Determinación): {r2:.4f}")
+print(f"MAPE (Error Porcentual Medio): {mape:.4f}")
+print(f"Log-Cosh Loss: {log_cosh:.4f}")
+print(f"Directional Accuracy (DA): {da:.4f}")
 print("-" * 50)
 
 # 8. Guardar
