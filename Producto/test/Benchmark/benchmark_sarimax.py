@@ -1,9 +1,17 @@
 from pathlib import Path
 import pandas as pd
 import numpy as np
+import time
 import warnings
 from statsmodels.tsa.statespace.sarimax import SARIMAX
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import (
+    mean_absolute_error,
+    mean_squared_error,
+    r2_score,
+    mean_absolute_percentage_error,
+    median_absolute_error,
+    max_error,
+)
 
 # Omitir warnings de convergencia para limpieza de consola
 warnings.filterwarnings("ignore")
@@ -16,7 +24,7 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "benchmark_result"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 # 2. Carga de Datos
-ENTRENAMIENTO = pd.read_csv(TRAINING_PATH)
+ENTRENAMIENTO = pd.read_csv(TRAINING_PATH).head(5000)
 VALIDACION = pd.read_csv(VALIDATION_PATH)
 
 features = ['var1','var2','var3','var4','var5','var6','var7','var8','var9','var10','var11','var12','var13']
@@ -39,6 +47,7 @@ valid_ts = prepare_ts(VALIDACION)
 # 4. Configuración y Entrenamiento de SARIMAX
 # order=(p, d, q) -> Autoregresivo, Integrado, Media Móvil
 print("Entrenando SARIMAX (esto puede tardar dependiendo del volumen de datos)...")
+start_time = time.perf_counter()
 modelo_sarima = SARIMAX(
     train_ts[target],
     exog=train_ts[features],
@@ -49,6 +58,8 @@ modelo_sarima = SARIMAX(
 )
 
 resultado = modelo_sarima.fit(disp=False)
+end_time = time.perf_counter()
+execution_time = end_time - start_time
 
 # 5. Predicción
 # Necesitamos pasar las variables exógenas de validación
@@ -65,14 +76,31 @@ y_true = VALIDACION[target]
 y_pred = VALIDACION['PREDICCION_SARIMA']
 mae = mean_absolute_error(y_true, y_pred)
 rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+r2 = r2_score(y_true, y_pred)
+mape = mean_absolute_percentage_error(y_true, y_pred)
+medae = median_absolute_error(y_true, y_pred)
+m_error = max_error(y_true, y_pred)
+log_cosh = np.log(np.cosh(y_pred - y_true)).mean()
+y_true_diff = np.diff(y_true)
+y_pred_diff = np.diff(y_pred)
+da = np.mean(np.sign(y_true_diff) == np.sign(y_pred_diff))
 
 # 7. Reporte
 print("-" * 50)
 print(" BENCHMARK: SARIMAX (ARIMA con Exógenas) ")
 print("-" * 50)
+print(f"Tiempo de ejecución: {execution_time:.4f} segundos")
 print(f"Precisión en grupo de alto riesgo (Top 5%): {promedio_arriendo:.4f}")
-print(f"MAE: {mae:.4f}")
-print(f"RMSE: {rmse:.4f}")
+print("-" * 25)
+print(f"MAE (Error Absoluto Medio): {mae:.4f}")
+print(f"RMSE (Raíz Error Cuadrático Medio): {rmse:.4f}")
+print(f"MedAE (Error Absoluto Mediano): {medae:.4f}")
+print(f"Max Error (Error Máximo): {m_error:.4f}")
+print("-" * 25)
+print(f"R² (Coef. de Determinación): {r2:.4f}")
+print(f"MAPE (Error Porcentual Medio): {mape:.4f}")
+print(f"Log-Cosh Loss: {log_cosh:.4f}")
+print(f"Directional Accuracy (DA): {da:.4f}")
 print("-" * 50)
 
 # 8. Guardar

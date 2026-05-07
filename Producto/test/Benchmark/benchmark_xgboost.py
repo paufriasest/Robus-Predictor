@@ -1,8 +1,16 @@
 from pathlib import Path
 import pandas as pd
 import numpy as np
+import time
 from xgboost import XGBRegressor
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import (
+    mean_absolute_error,
+    mean_squared_error,
+    r2_score,
+    mean_absolute_percentage_error,
+    median_absolute_error,
+    max_error,
+)
 
 # 1. Configuración de Rutas
 ROOT_DIR = Path(__file__).resolve().parents[3]
@@ -22,6 +30,7 @@ X_train, y_train = ENTRENAMIENTO[features], ENTRENAMIENTO[target]
 X_valid, y_true = VALIDACION[features], VALIDACION[target]
 
 # 3. Entrenamiento XGBoost
+start_time = time.perf_counter()
 modelo_xgb = XGBRegressor(
     n_estimators=100,
     learning_rate=0.1,
@@ -34,7 +43,11 @@ modelo_xgb = XGBRegressor(
 modelo_xgb.fit(X_train, y_train)
 
 # 4. Predicción
-VALIDACION['PREDICCION_XGB'] = modelo_xgb.predict(X_valid)
+y_pred = modelo_xgb.predict(X_valid)
+end_time = time.perf_counter()
+execution_time = end_time - start_time
+
+VALIDACION['PREDICCION_XGB'] = y_pred
 
 # 5. Evaluación (Top 5% Riesgo)
 VALIDACION_ORD = VALIDACION.sort_values(by='PREDICCION_XGB', ascending=False)
@@ -42,18 +55,41 @@ top_n = int(len(VALIDACION_ORD) * 0.05)
 PC5_MAS_PROB_VALIDACION = VALIDACION_ORD.head(top_n)
 
 promedio_arriendo = PC5_MAS_PROB_VALIDACION['ARRIENDO'].mean()
-y_pred = VALIDACION['PREDICCION_XGB']
+
+# 6. Cálculo de Métricas Estadísticas
 mae = mean_absolute_error(y_true, y_pred)
 rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+r2 = r2_score(y_true, y_pred)
+mape = mean_absolute_percentage_error(y_true, y_pred)
+medae = median_absolute_error(y_true, y_pred)
+m_error = max_error(y_true, y_pred)
 
-# 6. Reporte
+# Log-Cosh Loss
+log_cosh = np.log(np.cosh(y_pred - y_true)).mean()
+
+# Directional Accuracy (DA)
+y_true_diff = np.diff(y_true)
+y_pred_diff = np.diff(y_pred)
+da = np.mean(np.sign(y_true_diff) == np.sign(y_pred_diff))
+
+# 7. Reporte de Resultados
 print("-" * 50)
 print(" BENCHMARK: XGBOOST REGRESSOR ")
 print("-" * 50)
+print(f"Tiempo de ejecución: {execution_time:.4f} segundos")
 print(f"Precisión en grupo de alto riesgo (Top 5%): {promedio_arriendo:.4f}")
-print(f"MAE: {mae:.4f}")
-print(f"RMSE: {rmse:.4f}")
+print("-" * 25)
+print(f"MAE (Error Absoluto Medio): {mae:.4f}")
+print(f"RMSE (Raíz Error Cuadrático Medio): {rmse:.4f}")
+print(f"MedAE (Error Absoluto Mediano): {medae:.4f}")
+print(f"Max Error (Error Máximo): {m_error:.4f}")
+print("-" * 25)
+print(f"R² (Coef. de Determinación): {r2:.4f}")
+print(f"MAPE (Error Porcentual Medio): {mape:.4f}")
+print(f"Log-Cosh Loss: {log_cosh:.4f}")
+print(f"Directional Accuracy (DA): {da:.4f}")
 print("-" * 50)
 
 # 7. Guardar
 VALIDACION.to_csv(OUTPUT_DIR / "resultados_xgboost.csv", index=False)
+print(f"Resultados guardados en: {OUTPUT_DIR / 'resultados_xgboost.csv'}")
