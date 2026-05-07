@@ -23,7 +23,7 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "benchmark_result"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 # 2. Carga de Datos
-ENTRENAMIENTO = pd.read_csv(TRAINING_PATH).head(5000)
+ENTRENAMIENTO = pd.read_csv(TRAINING_PATH)
 VALIDACION = pd.read_csv(VALIDATION_PATH)
 
 features = ['var1','var2','var3','var4','var5','var6','var7','var8','var9','var10','var11','var12','var13']
