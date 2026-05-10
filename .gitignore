@@ -1,6 +1,7 @@
 NoSeSube
 *.csv
 debug_valores_anomalos
+Diagnostics
 catboost_info/
 
 # Entornos virtuales

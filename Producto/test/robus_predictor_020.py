@@ -1,0 +1,120 @@
+from pathlib import Path
+import sys
+
+import pandas as pd
+import numpy as np
+import time
+from sklearn.metrics import (
+    mean_absolute_error,
+    mean_squared_error,
+    r2_score,
+    mean_absolute_percentage_error,
+    median_absolute_error,
+    max_error,
+)
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT_DIR / "Producto"))
+
+from robuspredictor import RobusPredictor
+
+
+# 1. Configuración de Rutas
+TRAINING_PATH = ROOT_DIR / "NoSeSube" / "Data" / "DATOS_ENTRENAMIENTO.csv"
+VALIDATION_PATH = ROOT_DIR / "NoSeSube" / "Data" / "DATOS_VALIDACION.csv"
+OUTPUT_DIR = Path(__file__).resolve().parent / "Benchmark" / "benchmark_result"
+OUTPUT_DIR.mkdir(exist_ok=True)
+
+# 2. Carga de Datos
+ENTRENAMIENTO = pd.read_csv(TRAINING_PATH)
+VALIDACION = pd.read_csv(VALIDATION_PATH)
+
+features = [
+    "var1", "var2", "var3", "var4", "var5", "var6", "var7",
+    "var8", "var9", "var10", "var11", "var12", "var13",
+]
+target = "INTENSIDAD_4H"
+
+mitad = len(ENTRENAMIENTO) // 2
+
+df_dominio_1 = ENTRENAMIENTO.iloc[:mitad]
+df_dominio_2 = ENTRENAMIENTO.iloc[mitad:]
+
+X1 = df_dominio_1[features]
+y1 = df_dominio_1[target]
+
+X2 = df_dominio_2[features]
+y2 = df_dominio_2[target]
+
+# 4. Datos de validación
+X_valid = VALIDACION[features]
+y_true = VALIDACION[target]
+
+# 5. Entrenamiento y medición de tiempo
+start_time = time.perf_counter()
+
+modelo_rp = RobusPredictor(
+    n_min=100,
+    n_max=500,
+    n_dom=2,
+    mean_max=2.0,
+    mean_min=-2.0,
+    std_min=0.20,
+    default_value=0
+)
+
+modelo_rp.fit(X1, y1, X2, y2)
+
+# 4. Predicción
+y_pred = modelo_rp.predict(X_valid)
+
+end_time = time.perf_counter()
+execution_time = end_time - start_time
+
+VALIDACION["PREDICCION_RP"] = y_pred
+
+# 5. Evaluación (Top 5% Riesgo)
+VALIDACION_ORD = VALIDACION.sort_values(by="PREDICCION_RP", ascending=False)
+top_n = int(len(VALIDACION_ORD) * 0.05)
+PC5_MAS_PROB_VALIDACION = VALIDACION_ORD.head(top_n)
+promedio_arriendo = PC5_MAS_PROB_VALIDACION["ARRIENDO"].mean()
+
+# 6. Cálculo de Métricas Estadísticas
+mae = mean_absolute_error(y_true, y_pred)
+rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+r2 = r2_score(y_true, y_pred)
+mape = mean_absolute_percentage_error(y_true, y_pred)
+medae = median_absolute_error(y_true, y_pred)
+m_error = max_error(y_true, y_pred)
+
+# Log-Cosh Loss
+log_cosh = np.log(np.cosh(y_pred - y_true)).mean()
+
+# Directional Accuracy (DA)
+y_true_diff = np.diff(y_true)
+y_pred_diff = np.diff(y_pred)
+da = np.mean(np.sign(y_true_diff) == np.sign(y_pred_diff))
+
+# 7. Reporte de Resultados
+print("-" * 50)
+print(" BENCHMARK: ROBUS PREDICTOR ")
+print("-" * 50)
+print(f"Cubos estables encontrados: {len(modelo_rp.stable_cubes)}")
+print(f"Tiempo de ejecución: {execution_time:.4f} segundos")
+print(f"Precisión en grupo de alto riesgo (Top 5%): {promedio_arriendo:.4f}")
+print("-" * 25)
+print(f"MAE (Error Absoluto Medio): {mae:.4f}")
+print(f"RMSE (Raíz Error Cuadrático Medio): {rmse:.4f}")
+print(f"MedAE (Error Absoluto Mediano): {medae:.4f}")
+print(f"Max Error (Error Máximo): {m_error:.4f}")
+print("-" * 25)
+print(f"R² (Coef. de Determinación): {r2:.4f}")
+print(f"MAPE (Error Porcentual Medio): {mape:.4f}")
+print(f"Log-Cosh Loss: {log_cosh:.4f}")
+print(f"Directional Accuracy (DA): {da:.4f}")
+print("-" * 50)
+
+# 8. Guardar resultados
+OUTPUT_FILE = OUTPUT_DIR / "resultados_robus_predictor_010.csv"
+VALIDACION.to_csv(OUTPUT_FILE, index=False)
+print(f"Resultados guardados en: {OUTPUT_FILE}")
