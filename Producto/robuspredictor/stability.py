@@ -1,105 +1,115 @@
-# Funcion para dividir el grupo de datos en dominios
-def split_domains(X, n_dom):
+def get_common_bounds(cubes_same_position):
+    common_bounds = {}
     
-    # Obtiene la cantidad total de registros del DataFrame
-    total_rows = len(X)
+    first_bounds = cubes_same_position[0]["bounds"]
     
-    # El tama;o del dominio viene determinado por la cantidad de filas en el numero de dominio
-    # si hay 1000 filas y n_dom = 2, cada dominio tendrá 500 filas
-    domain_size = total_rows // n_dom
-
-    # aqui se guardaran los dominios, cada dominio estar en un index
-    domains = []
-
-    # Recorre la cantidad de dominios solicitados
-    for i in range(n_dom):
-        # Calcula la posicioin inicial del dominio actual
-        start = i * domain_size
-
-        # verificar si esta en el ultimo dominio, se toma hasta el final del DataFrame
-        # para evitar perder filas cuando la división no es exacta
-        if i == n_dom - 1:
-            end = total_rows
-        else:
-            end = (i + 1) * domain_size
-
-        # Guarda los indices de las filas que pertenecen al dominio actual.
-        domains.append(X.iloc[start:end].index)
-
-    # devuelve las liosta de los dominios
-    return domains
+    for column in first_bounds.keys():
+        common_min = max(cube["bounds"][column]["min"] for cube in cubes_same_position)
+        common_max = min(cube["bounds"][column]["max"] for cube in cubes_same_position)
+        
+        if common_min > common_max:
+            return None
+        
+        common_bounds[column] = {
+            "min": common_min,
+            "max": common_max,
+        }
+        
+    return common_bounds
 
 # Funcion que seleccionar[a los cubos estables]
-def select_stable_cubes(X, y, cubes, n_dom, mean_max, mean_min, std):
+def select_stable_cubes(
+    domain_cubes,
+    mean_max, 
+    mean_min, 
+    std_max, 
+    verbose=False
+    ):
     
     #lista que guarda todos los cubos estables
-    stable = []
+    stable_cubes = []
     
-    # aqui se usa la funcion anterior
-    domains = split_domains(X, n_dom)
-
-    # recorre cada cubo generado en el particionamiento
-    for cube in cubes:
+    min_cube_count = min(len(domain["cubes"]) for domain in domain_cubes)
+    
+    if verbose:
+        print("\n[Stability] Inicio selección de cubos estables")
+        print(f"[Stability] Dominios recibidos: {len(domain_cubes)}")
+        print(f"[Stability] Cubos comparables por posición: {min_cube_count}")
+    
+    
+    for cube_position in range(min_cube_count):
+        cubes_same_position = []
+        domain_means = []
+        domain_counts = []
         
-        #guardamos los indices de las filas que pértecenen los cubos
-        idx = cube["index"]
-
-        # lista donde se guarda el promedio de cada dominio 
-        means = []
-
-        #recorre cada dominio temporal
-        for d in domains:
+        if verbose:
+            print(f"\n[Stability] Evaluando posición de cubo #{cube_position}")
             
-            #obtiene la interseccion filas que son del cubo y filas que pertenecen al dominio actual
-            inter = idx.intersection(d)
-
-            # si el cubo no teine datos dentro del dominio se continua con el otro
-            if len(inter) == 0:
-                continue
-
-            # obtiene los vlores de las variables objetivos correcponditen
-            # a las filñas que estan dentro del cubo y del dominio
-            y_vals = y.loc[inter]
+        for domain in domain_cubes:
+            cube = domain["cubes"][cube_position]
+            y = domain["y"]
             
-            # calcula el promedio de la variable objetivo en este dominio
-            means.append(y_vals.mean())
-
-        # si el cubo no tiene presencia en todos los dominios no s epuede evaluar sue stabilidad
-        # se descarta
-        if len(means) < n_dom:
+            y_values = y.loc[cube["index"]]
+            domain_mean = y_values.mean()
+            domain_count = len(y_values)
+            
+            cubes_same_position.append(cube)
+            domain_means.append(domain_mean)
+            domain_counts.append(domain_count)
+            
+            if verbose:
+                print(
+                    f"[Stability] Dominio {domain['domain']} | "
+                    f"Cubo posición {cube_position} | "
+                    f"N={domain_count} | Prom target={domain_mean}"
+                )
+        
+        min_domain_mean = min(domain_means)
+        max_domain_mean = max(domain_means)
+        
+        if max_domain_mean == 0:
+            if verbose:
+                print(f"[Stability] Cubo #{cube_position} descartado: max_mean = 0")
             continue
-
-        # menor promedio entre los dominios
-        min_mean = min(means)
         
-        #mayor promedio entre los domiunios
-        max_mean = max(means)
-
-        # evita la 
-        if max_mean == 0:
+        variation = (max_domain_mean - min_domain_mean) / abs(max_domain_mean)
+        prediction_value = sum(domain_means) / len(domain_means)
+        
+        common_bounds = get_common_bounds(cubes_same_position)
+        
+        if common_bounds is None:
+            if verbose:
+                print(
+                    f"[Stability] Cubo #{cube_position} descartado: "
+                    "no existe intersección común entre dominios."
+                )
             continue
-
-        # calcula la varion porcentual entre el dominio con mayor y menor promedio, entre menor es mas estable el cubo
-        variation = (max_mean - min_mean) / abs(max_mean)
         
+        if verbose:
+            print(f"[Stability] Promedios por dominio: {domain_means}")
+            print(f"[Stability] prediction_value: {prediction_value}")
+            print(f"[Stability] variation: {variation}")
+            print(
+                f"[Stability] Criterios usuario: "
+                f"mean_min={mean_min}, mean_max={mean_max}, std_max={std_max}"
+            )
+            
+        if mean_min <= prediction_value <= mean_max and variation <= std_max:
+            stable_cubes.append(
+                {
+                    "cube_position": cube_position,
+                    "bounds": common_bounds,
+                    "prediction_value": prediction_value,
+                    "variation": variation,
+                    "domain_means": domain_means,
+                    "domain_counts": domain_counts,
+                }
+            )
+            
+            if verbose:
+                print(f"[Stability] Cubo #{cube_position} seleccionado como estable.")
+        else:
+            if verbose:
+                print(f"[Stability] Cubo #{cube_position} descartado por criterios.")
         
-        # calcula el valor predictivo del cubo 
-        prediction_value = sum(means) / len(means)
-
-        # Criterio de selección:
-        # - El valor predictivo debe estar dentro del rango permitido
-        #    por mean_min y mean_max
-        # - La variación entre dominios debe ser menor o igual a std
-        if (
-            mean_min <= prediction_value <= mean_max
-            and variation <= std
-        ):
-             # Si cumple los criterios, se guarda como cubo estable
-            stable.append({
-                "bounds": cube["bounds"],
-                "prediction_value": prediction_value,
-                "variation": variation,
-            })
-
-  # Retorna la lista de cubos estables seleccionados
-    return stable
+    return stable_cubes

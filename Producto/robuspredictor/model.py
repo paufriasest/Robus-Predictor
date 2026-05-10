@@ -1,29 +1,31 @@
-from .utils import validate_params, validate_fit_data, validate_predict_data
+from .utils import validate_params, validate_predict_data, validate_domains
 from .partitioning import recursive_median_partition
 from .stability import select_stable_cubes
 from .prediction import predict_from_stable_cubes
 
 
 # Clase priuncipal de la libreria, es el modelo de robuspredictor
+# NOTE: Definimos 
+#          X = var predictorias    
+#          Y = var target
 class RobusPredictor:
     # Inicio de robuspredictor donde recibe los parametros
     # Ademas, se valida el tipo de dato de cada parametro
-    def __init__(self, n_min, n_max, n_dom,  mean_max, mean_min, std, default_value=0):
+    def __init__(self, n_min, n_max, n_dom,  mean_max, mean_min, std_min, default_value=0, verbose=False):
         
         # funcion que valida parametros
-        validate_params(n_min, n_max, n_dom, mean_max, mean_min, std)
+        validate_params(n_min, n_max, n_dom, mean_max, mean_min, std_min)
 
         self.n_min = n_min
         self.n_max = n_max
         self.n_dom = n_dom
         self.mean_max = mean_max
         self.mean_min = mean_min
-        self.std = std
+        self.std_min = std_min
         self.default_value= default_value
+        self.verbose = verbose
         
-        
-        # Aqui se guardaran todos los cubos generados por el particionamiento.
-        self.cubes = None
+        self.domain_cubes = None
         # Aqui se guardaran solos los cubos que cumplen los criterios de estabilidad
         self.stable_cubes = None
         
@@ -36,29 +38,63 @@ class RobusPredictor:
 
 
     # Se def el primer metodo de robuspredictor el cual entrena/construye el modelo
-    # Recibe de parametros  X= variables predictoras   Y= varible objetivo (target)
-    # NOTA: En esta primera iteracion solo se permitir[a introducir un conjunto de dataFrame
-    #       Si el usuario desea trabajar con otro DataFrame, deberá crear una nueva instancia del modelo
-    #       El soporte para m[ultiples dataframes podría quedar para una versión futura.
-    def fit(self, x, y):
+    # Recibe de parametros  X= variables predictoras los dominios que deben venir en un dataframe las variables predictorias y en otro df var target
+    def fit(self, *domains):
+        domain_pairs = validate_domains(domains, self.n_dom)
         
+        self.feature_names = list(domain_pairs[0][0].columns)
+        self.domain_cubes = []
         
-        # valida que x e y sean correctos, que no esten vacios y tengan misma cantidad de registros
-        validate_fit_data(x,y)
+        if self.verbose:
+            print("\n[Fit] Inicio entrenamiento RobusPredictor")
+            print(f"[Fit] Cantidad de dominios recibidos: {len(domain_pairs)}")
+            print(f"[Fit] Variables predictoras: {self.feature_names}")
+            print(
+                f"[Fit] Parámetros: "
+                f"element_cube_min={self.n_min}, "
+                f"element_cube_max={self.n_max}, "
+                f"n_dom={self.n_dom}, "
+                f"mean_cube_min={self.mean_min}, "
+                f"mean_cube_max={self.mean_max}, "
+                f"desv_cube_min={self.std_min}"
+            )
+            
+        for domain_number, (X_domain, y_domain) in enumerate(domain_pairs, start=1):
+            if self.verbose:
+                print(f"\n[Fit] Procesando Dominio {domain_number}")
+                print(f"[Fit] X={X_domain.shape}, y={y_domain.shape}")
+            
+            cubes = recursive_median_partition(
+                X_domain,
+                n_min=self.n_min,
+                n_max=self.n_max,
+                verbose=self.verbose,
+            )
+            
+            self.domain_cubes.append(
+                {
+                    "domain": domain_number,
+                    "X": X_domain,
+                    "y": y_domain,
+                    "cubes": cubes,
+                }
+            )
+            
+            if self.verbose:
+                print(f"[Fit] Cubos generados Dominio {domain_number}: {len(cubes)}")
         
-        # rellena los nombres de las columnas usadas en el entrenamiento
-        self.feature_names = list(x.columns)
-
-        #guarda los cubos / regiones del espacio vecgorial usando la particion por medianas
-        self.cubes = recursive_median_partition(x, n_min=self.n_min, n_max=self.n_max)
+        self.stable_cubes = select_stable_cubes(
+            domain_cubes=self.domain_cubes,
+            mean_min=self.mean_min,
+            mean_max=self.mean_max,
+            std_max=self.std_min,
+            verbose=self.verbose,
+        )
         
-        # selecciona solo los cubos estables cantidad de dominios temporales - promedio min y max de la variable objetivo - desviación porcentual permitida
-        self.stable_cubes = select_stable_cubes(x, y, self.cubes, self.n_dom, self.mean_max, self.mean_min, self.std)
-                
-        # marca la flag como que el modelo fue entrenado
+        if self.verbose:
+            print(f"\n[Fit] Cubos estables finales: {len(self.stable_cubes)}")
+        
         self.is_fitted = True
-        
-        # retorna el mismo objeto para el concatenamiento de los metodos
         return self
     
     # Se def el segundo metodo de robuspredictor el cual predice con datos nuevos y el modelo previamente entrenado con los datos de entrenamiento
@@ -89,4 +125,5 @@ class RobusPredictor:
             X=x,
             stable_cubes=self.stable_cubes,
             default_value=self.default_value,
+            verbose=self.verbose
         )
