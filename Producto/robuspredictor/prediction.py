@@ -5,7 +5,6 @@ import pandas as pd
 # - row: una fila del DataFrame X.
 # - cube_bounds: los límites mínimos y máximos del cubo.
 def row_belongs_to_cube(row, cube_bounds):
-    
     # Recorre cada variable del cubo y sus límites
     for column, limits in cube_bounds.items():
         # Obtiene el valor de la fila nueva para la columna actual.
@@ -25,29 +24,42 @@ def row_belongs_to_cube(row, cube_bounds):
 # - X: DataFrame con los nuevos datos a predecir.
 # - stable_cubes: lista de cubos estables encontrados durante fit().
 # - default_value: valor por defecto cuando una fila no cae en ningún cubo estable.
-def predict_from_stable_cubes(X, stable_cubes, default_value):
+def predict_from_stable_cubes(X, stable_cubes, default_value, verbose=False):
     # Lista donde se almacenarán las predicciones finales.
     predictions = []
-
+    
+    if verbose:
+        print("\n[Predict] Inicio de predicción")
+        print(f"[Predict] Registros a predecir: {len(X)}")
+        print(f"[Predict] Cubos estables disponibles: {len(stable_cubes)}")
+        
     # Recorre cada fila del DataFrame X.
     # El guion bajo "_" representa el índice de la fila, pero no lo usamos directamente.
-    for _, row in X.iterrows():
+    for row_number, (_, row) in enumerate(X.iterrows(), start=1):
         # Se asigna inicialmente el valor por defecto.
         # Si la fila no cae en ningún cubo estable, este será el resultado final.
         prediction = default_value
-
-        # Recorre cada cubo estable guardado por el modelo
+        matched = False
+        
         for cube in stable_cubes:
-              # Verifica si la fila actual pertenece al cubo estable.
             if row_belongs_to_cube(row, cube["bounds"]):
-                 # Si pertenece, se usa el valor predictivo asociado al cubo.
                 prediction = cube["prediction_value"]
-                    # Se detiene la búsqueda porque ya se encontró un cubo válido.
+                matched = True
+                
+                if verbose:
+                    print(
+                        f"[Predict] Fila {row_number}: coincide con cubo "
+                        f"posición {cube['cube_position']} | pred={prediction}"
+                    )
+                    
                 break
-        # Guarda la predicción obtenida para la fila actual.
+            
+        if verbose and not matched:
+            print(
+                f"[Predict] Fila {row_number}: sin coincidencia, "
+                f"default={default_value}"
+            )
+            
         predictions.append(prediction)
-
-    # Retorna las predicciones como una Series de pandas.
-    # Se usa el mismo índice de X para que pueda asignarse directamente:
-    # df["pred"] = modelo.predict(X)
+        
     return pd.Series(predictions, index=X.index, name="pred")
