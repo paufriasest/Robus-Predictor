@@ -1,5 +1,12 @@
 # Robus-Predictor
 
+![Python](https://img.shields.io/badge/Python-3.8.10-3776AB?logo=python&logoColor=white)
+![NumPy](https://img.shields.io/badge/NumPy-1.24.4-013243?logo=numpy&logoColor=white)
+![Pandas](https://img.shields.io/badge/Pandas-2.0.3-150458?logo=pandas&logoColor=white)
+![Scikit-Learn](https://img.shields.io/badge/Scikit--Learn-1.3.2-F7931E?logo=scikitlearn&logoColor=white)
+![Version](https://img.shields.io/badge/Version-0.2.0-green)
+![Status](https://img.shields.io/badge/Status-Development-yellow)
+
 ## Descripción
 RobusPredictor, es una libreria en Ptyhon orientada al desarrollo de modelos predictivos, diseñada para identificar patrones consistentes en conjuntos de datos numéricos caracterizados por alta variabilidad, ruido y presencia de valores atípicos.
 
@@ -22,7 +29,7 @@ Se recomiendo el uso de un entorno virtual.
 ## Clonar repositorio
 
 ```
-git clone <repository_url>
+git clone https://github.com/paufriasest/Robus-Predictor.git
 cd Robus-Predictor
 ```
 ## Crear entorno virtual
@@ -84,12 +91,12 @@ Robus-Predictor/
 
 | Parámetro        | Descripción                                                           |
 | ---------------- | --------------------------------------------------------------------- |
-| element_cube_min | Cantidad mínima de elementos permitidos por cubo                      |
-| element_cube_max | Cantidad máxima de elementos permitidos por cubo                      |
-| n_domain         | Número de dominios temporales                                         |
-| mean_cube_min    | Promedio mínimo permitido para cubos estables                         |
-| mean_cube_max    | Promedio máximo permitido para cubos estables                         |
-| desv_cube_min    | Desviación máxima permitida entre dominios                            |
+| n_min            | Cantidad mínima de elementos permitidos por cubo                      |
+| n_min            | Cantidad máxima de elementos permitidos por cubo                      |
+| n_dom            | Número de dominios temporales                                         |
+| mean_min         | Promedio mínimo permitido para cubos estables                         |
+| mean_max         | Promedio máximo permitido para cubos estables                         |
+| std_min          | Desviación máxima permitida entre dominios                            |
 | default_value    | Valor utilizado cuando un registro no pertenece a ningún cubo estable |
 | verbose          | Habilita mensajes de trazabilidad del algoritmo                       |
 
@@ -118,12 +125,12 @@ y2 = pd.Series([1.55, 1.65, 1.60, 2.55, 2.65, 2.60])
 
 # Modelo
 modelo = RobusPredictor(
-    element_cube_min=2,
-    element_cube_max=4,
-    n_domain=2,
-    mean_cube_min=1.0,
-    mean_cube_max=3.0,
-    desv_cube_min=0.20,
+    n_min=2,
+    n_max=4,
+    n_dom=2,
+    mean_min=1.0,
+    mean_max=3.0,
+    std_min=0.20,
     default_value=0,
     verbose=True,
 )
