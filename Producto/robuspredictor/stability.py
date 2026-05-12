@@ -1,115 +1,156 @@
-def get_common_bounds(cubes_same_position):
-    common_bounds = {}
-    
-    first_bounds = cubes_same_position[0]["bounds"]
-    
-    for column in first_bounds.keys():
-        common_min = max(cube["bounds"][column]["min"] for cube in cubes_same_position)
-        common_max = min(cube["bounds"][column]["max"] for cube in cubes_same_position)
-        
-        if common_min > common_max:
-            return None
-        
-        common_bounds[column] = {
-            "min": common_min,
-            "max": common_max,
-        }
-        
-    return common_bounds
+import pandas as pd
 
-# Funcion que seleccionar[a los cubos estables]
+
 def select_stable_cubes(
-    domain_cubes,
-    mean_max, 
-    mean_min, 
-    std_max, 
+    domains,
+    mean_min,
+    mean_max,
+    std_min,
+    std_max,
     verbose=False
-    ):
-    
-    #lista que guarda todos los cubos estables
+):
+    if not domains:
+        raise ValueError("domains no puede estar vacío.")
+
+    for i, domain in enumerate(domains):
+        if "x" not in domain:
+            raise ValueError(f"El dominio {i + 1} no contiene la clave 'x'.")
+
+        if "y" not in domain:
+            raise ValueError(f"El dominio {i + 1} no contiene la clave 'y'.")
+
+        if "groups" not in domain:
+            raise ValueError(f"El dominio {i + 1} no contiene la clave 'groups'.")
+
+    base_groups = domains[0]["groups"]
+    group_ids = list(base_groups.keys())
+
     stable_cubes = []
-    
-    min_cube_count = min(len(domain["cubes"]) for domain in domain_cubes)
-    
-    if verbose:
-        print("\n[Stability] Inicio selección de cubos estables")
-        print(f"[Stability] Dominios recibidos: {len(domain_cubes)}")
-        print(f"[Stability] Cubos comparables por posición: {min_cube_count}")
-    
-    
-    for cube_position in range(min_cube_count):
-        cubes_same_position = []
-        domain_means = []
-        domain_counts = []
-        
-        if verbose:
-            print(f"\n[Stability] Evaluando posición de cubo #{cube_position}")
-            
-        for domain in domain_cubes:
-            cube = domain["cubes"][cube_position]
+    red_zones = []
+
+    for group_id in group_ids:
+        domain_stats = []
+        is_stable = True
+        rejection_reasons = []
+
+        for domain_index, domain in enumerate(domains):
+            groups = domain["groups"]
             y = domain["y"]
-            
-            y_values = y.loc[cube["index"]]
-            domain_mean = y_values.mean()
-            domain_count = len(y_values)
-            
-            cubes_same_position.append(cube)
-            domain_means.append(domain_mean)
-            domain_counts.append(domain_count)
-            
-            if verbose:
-                print(
-                    f"[Stability] Dominio {domain['domain']} | "
-                    f"Cubo posición {cube_position} | "
-                    f"N={domain_count} | Prom target={domain_mean}"
+
+            if group_id not in groups:
+                is_stable = False
+                rejection_reasons.append(
+                    f"Dominio {domain_index + 1}: no existe el grupo {group_id}"
                 )
-        
-        min_domain_mean = min(domain_means)
-        max_domain_mean = max(domain_means)
-        
-        if max_domain_mean == 0:
-            if verbose:
-                print(f"[Stability] Cubo #{cube_position} descartado: max_mean = 0")
-            continue
-        
-        variation = (max_domain_mean - min_domain_mean) / abs(max_domain_mean)
-        prediction_value = sum(domain_means) / len(domain_means)
-        
-        common_bounds = get_common_bounds(cubes_same_position)
-        
-        if common_bounds is None:
-            if verbose:
-                print(
-                    f"[Stability] Cubo #{cube_position} descartado: "
-                    "no existe intersección común entre dominios."
+                continue
+
+            x_group = groups[group_id]
+
+            if x_group.empty:
+                is_stable = False
+                rejection_reasons.append(
+                    f"Dominio {domain_index + 1}: grupo vacío"
                 )
-            continue
-        
-        if verbose:
-            print(f"[Stability] Promedios por dominio: {domain_means}")
-            print(f"[Stability] prediction_value: {prediction_value}")
-            print(f"[Stability] variation: {variation}")
-            print(
-                f"[Stability] Criterios usuario: "
-                f"mean_min={mean_min}, mean_max={mean_max}, std_max={std_max}"
-            )
-            
-        if mean_min <= prediction_value <= mean_max and variation <= std_max:
-            stable_cubes.append(
-                {
-                    "cube_position": cube_position,
-                    "bounds": common_bounds,
-                    "prediction_value": prediction_value,
-                    "variation": variation,
-                    "domain_means": domain_means,
-                    "domain_counts": domain_counts,
-                }
-            )
-            
+
+                domain_stats.append({
+                    "domain": domain_index + 1,
+                    "group_id": group_id,
+                    "n": 0,
+                    "mean": None,
+                    "std": None,
+                    "mean_ok": False,
+                    "std_ok": False,
+                    "is_valid": False,
+                    "reason": "grupo vacío"
+                })
+
+                continue
+
+            y_group = y.loc[x_group.index]
+
+            if isinstance(y_group, pd.DataFrame):
+                if y_group.shape[1] != 1:
+                    raise ValueError(
+                        "y debe ser una Series o un DataFrame de una sola columna."
+                    )
+
+                y_group = y_group.iloc[:, 0]
+
+            mean_value = y_group.mean()
+            std_value = y_group.std()
+
+            # Si el grupo tiene 1 solo elemento, pandas devuelve std = NaN.
+            # Para esta lógica lo tratamos como 0.
+            if pd.isna(std_value):
+                std_value = 0.0
+
+            mean_ok = mean_min <= mean_value <= mean_max
+            std_ok = std_min <= std_value <= std_max
+
+            group_valid = mean_ok and std_ok
+
+            reason = []
+
+            if not mean_ok:
+                reason.append(
+                    f"mean fuera de rango: {mean_value} no está entre {mean_min} y {mean_max}"
+                )
+
+            if not std_ok:
+                reason.append(
+                    f"std fuera de rango: {std_value} no está entre {std_min} y {std_max}"
+                )
+
+            if not group_valid:
+                is_stable = False
+                rejection_reasons.append(
+                    f"Dominio {domain_index + 1}: " + "; ".join(reason)
+                )
+
+            domain_stats.append({
+                "domain": domain_index + 1,
+                "group_id": group_id,
+                "n": len(y_group),
+                "mean": mean_value,
+                "std": std_value,
+                "mean_ok": mean_ok,
+                "std_ok": std_ok,
+                "is_valid": group_valid,
+                "reason": "; ".join(reason) if reason else "OK"
+            })
+
+        valid_means = [
+            stat["mean"]
+            for stat in domain_stats
+            if stat["mean"] is not None
+        ]
+
+        prediction_value = (
+            sum(valid_means) / len(valid_means)
+            if valid_means
+            else None
+        )
+
+        cube_info = {
+            "group_id": group_id,
+            "prediction_value": prediction_value,
+            "stats": domain_stats,
+            "is_stable": is_stable,
+            "rejection_reasons": rejection_reasons
+        }
+
+        if is_stable:
+            stable_cubes.append(cube_info)
+
             if verbose:
-                print(f"[Stability] Cubo #{cube_position} seleccionado como estable.")
+                print(f"[STABLE] Grupo {group_id} | pred={prediction_value}")
+
         else:
+            red_zones.append(cube_info)
+
             if verbose:
-                print(f"[Stability] Cubo #{cube_position} descartado por criterios.")
-        
-    return stable_cubes
+                print(f"[RED ZONE] Grupo {group_id}")
+                for reason in rejection_reasons:
+                    print(f"  - {reason}")
+
+    return stable_cubes, red_zones
