@@ -35,18 +35,10 @@ features = [
 ]
 target = "INTENSIDAD_4H"
 
-mitad = len(ENTRENAMIENTO) // 2
+X_train = ENTRENAMIENTO[features]
+y_train = ENTRENAMIENTO[target]
 
-df_dominio_1 = ENTRENAMIENTO.iloc[:mitad]
-df_dominio_2 = ENTRENAMIENTO.iloc[mitad:]
-
-X1 = df_dominio_1[features]
-y1 = df_dominio_1[target]
-
-X2 = df_dominio_2[features]
-y2 = df_dominio_2[target]
-
-# 4. Datos de validación
+# 4. Datos de validacion
 X_valid = VALIDACION[features]
 y_true = VALIDACION[target]
 
@@ -59,11 +51,12 @@ modelo_rp = RobusPredictor(
     n_dom=2,
     mean_max=2.0,
     mean_min=-2.0,
-    std_min=0.20,
+    std_min=0.0,
+    std_max=0.20,
     default_value=0
 )
 
-modelo_rp.fit(X1, y1, X2, y2)
+modelo_rp.fit(X_train, y_train)
 
 # 4. Predicción
 y_pred = modelo_rp.predict(X_valid)
@@ -115,6 +108,6 @@ print(f"Directional Accuracy (DA): {da:.4f}")
 print("-" * 50)
 
 # 8. Guardar resultados
-OUTPUT_FILE = OUTPUT_DIR / "resultados_robus_predictor_010.csv"
+OUTPUT_FILE = OUTPUT_DIR / "resultados_robus_predictor_020.csv"
 VALIDACION.to_csv(OUTPUT_FILE, index=False)
 print(f"Resultados guardados en: {OUTPUT_FILE}")

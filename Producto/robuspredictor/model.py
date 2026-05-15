@@ -3,7 +3,7 @@ from .partitioning import median_partition, apply_median_cuts
 from .stability import select_stable_cubes
 from .prediction import predict_from_stable_cubes
 from .domains import split_training_domains
-
+from .checkpoint import export_checkpoint
 
 class RobusPredictor:
     def __init__(
@@ -45,6 +45,8 @@ class RobusPredictor:
         self.red_zones = []
         self.feature_names = None
         self.is_fitted = False
+        
+        self.checkpoint = None
     
     
     def fit(self, x, y):
@@ -158,3 +160,22 @@ class RobusPredictor:
             default_value=self.default_value,
             verbose=self.verbose
         )
+        
+    def export_checkpoint(self, path, file_format="xlsx"):
+        if not self.is_fitted:
+            raise ValueError("El modelo debe entrenarse con fit() antes de exportar checkpoint.")
+        
+        self.checkpoint = export_checkpoint(
+            path=path,
+            domains=self.domains,
+            stable_cubes=self.stable_cubes,
+            red_zones=self.red_zones,
+            cuts=self.cuts,
+            feature_names=self.feature_names,
+            file_format=file_format
+        )
+        
+        if self.verbose:
+            print(f"[Checkpoint] Archivo exportado correctamente en: {path}")
+            
+        return self.checkpoint

@@ -47,7 +47,8 @@ modelo_rp = RobusPredictor(
     n_dom=2,
     mean_max=2.0,
     mean_min=-2.0,
-    std=0.20,
+    std_min=0.0,
+    std_max=0.20,
     default_value=0
 )
 

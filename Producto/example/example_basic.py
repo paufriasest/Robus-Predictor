@@ -79,3 +79,8 @@ resultado["pred"] = modelo.predict(X_valid)
 
 print("\nPredicciones:")
 print(resultado)
+
+modelo.export_checkpoint(
+    path="checkpoint_robuspredictor.xlsx",
+    file_format="xlsx"
+)
