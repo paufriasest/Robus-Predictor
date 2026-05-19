@@ -2,7 +2,7 @@ import pandas as pd
 from robuspredictor import RobusPredictor
 
 # Datasets de entrenamientos
-# TODO: ARREGLAR ESTA WEA
+# TODO: ARREGLAR 
 
 X_train = pd.DataFrame({
     "var1": [
