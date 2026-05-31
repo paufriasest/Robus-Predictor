@@ -124,16 +124,26 @@ def select_stable_cubes(
             for stat in domain_stats
             if stat["mean"] is not None
         ]
-
-        prediction_value = (
+        # para la version 0.4 se arregla la prediccion de tal forma que se debe sumar lso promedios de las regioes para asignar como nueva predict
+        sum_means = sum(valid_means) if valid_means else None
+        
+        # de igual forma dejaremos la variable guardada que lo calculaba con anterioridad como el promedio de promedios de las regiones
+        mean_of_means = (
             sum(valid_means) / len(valid_means)
             if valid_means
             else None
         )
 
+        # se deja la predcict value con el valor de las sumas
+        prediction_value = sum_means
+
+        # se mantienen ambas variables para trazabilidad interna 
         cube_info = {
             "group_id": group_id,
             "prediction_value": prediction_value,
+            "sum_means": sum_means,
+            "mean_of_means": mean_of_means,
+            "domain_means": valid_means,
             "stats": domain_stats,
             "is_stable": is_stable,
             "rejection_reasons": rejection_reasons

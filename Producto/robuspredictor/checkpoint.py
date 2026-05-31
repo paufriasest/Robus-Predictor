@@ -61,7 +61,7 @@ def build_cubes_checkpoint(
 
     Parametros opcionales:
         testing_groups : dict[str, pd.DataFrame]  — grupos del dataset de testing
-                         generados con apply_median_cuts(X_test, cuts)
+                        generados con apply_median_cuts(X_test, cuts)
         y_testing      : pd.Series                — target real del dataset de testing
     """
     cubos_estables = _obtener_info_cubos(stable_cubes)
@@ -77,20 +77,26 @@ def build_cubes_checkpoint(
 
         # ── Identificacion ───────────────────────────────────────────────────
         fila = {
-            "id_cubo":               id_cubo,
-            "estable":               1 if es_estable else 0,
-            "valor_prediccion":      info_cubo.get("prediction_value"),
-            "motivo_rechazo":        json.dumps(
-                                         info_cubo.get("rejection_reasons", []),
-                                         ensure_ascii=False
-                                     ),
+            "id_cubo": id_cubo,
+            "estable": 1 if es_estable else 0,
+            "valor_prediccion": info_cubo.get("prediction_value"),
+            "suma_promedios_region": info_cubo.get("sum_means"),
+            "promedio_promedios_region": info_cubo.get("mean_of_means"),
+            "promedios_region_por_dominio": json.dumps(
+                info_cubo.get("domain_means", []),
+                ensure_ascii=False
+            ),
+            "motivo_rechazo": json.dumps(
+                                info_cubo.get("rejection_reasons", []),
+                                ensure_ascii=False
+                            ),
             "profundidad_particion": len(id_cubo),
         }
 
         # ── Promedios de variables predictoras por dominio ───────────────────
         grupo_dom1 = domains[0]["groups"].get(id_cubo, pd.DataFrame())
         grupo_dom2 = domains[1]["groups"].get(id_cubo, pd.DataFrame()) \
-                     if len(domains) > 1 else pd.DataFrame()
+                    if len(domains) > 1 else pd.DataFrame()
 
         for variable in feature_names:
             # Dom1 — referencia espacial del cubo
@@ -231,15 +237,15 @@ def build_summary_checkpoint(stable_cubes, red_zones, cuts, domains):
 
         filas.extend([
             {"metrica": "dominio_" + str(i) + "_total_grupos",
-             "valor": len(tamanios)},
+            "valor": len(tamanios)},
             {"metrica": "dominio_" + str(i) + "_tamanio_minimo_grupo",
-             "valor": min(tamanios)},
+            "valor": min(tamanios)},
             {"metrica": "dominio_" + str(i) + "_tamanio_maximo_grupo",
-             "valor": max(tamanios)},
+            "valor": max(tamanios)},
             {"metrica": "dominio_" + str(i) + "_tamanio_promedio_grupo",
-             "valor": sum(tamanios) / len(tamanios)},
+            "valor": sum(tamanios) / len(tamanios)},
             {"metrica": "dominio_" + str(i) + "_grupos_vacios",
-             "valor": sum(1 for t in tamanios if t == 0)},
+            "valor": sum(1 for t in tamanios if t == 0)},
         ])
 
     return pd.DataFrame(filas)
@@ -271,15 +277,15 @@ def export_checkpoint(
     feature_names  : list[str]            — variables predictoras
     file_format    : str                  — 'xlsx' o 'csv'
     testing_groups : dict[str, DataFrame] — grupos del dataset de testing,
-                     generados con apply_median_cuts(X_test, cuts). Opcional.
+                    generados con apply_median_cuts(X_test, cuts). Opcional.
     y_testing      : pd.Series            — target real del dataset de testing.
-                     Requerido si se provee testing_groups.
+                    Requerido si se provee testing_groups.
 
     Hojas generadas (xlsx):
     -----------------------
     cubes_checkpoint : una fila por cubo. Incluye promedios de predictoras
-                       por dom1/dom2/consolidado, metricas del target por
-                       dominio, testing (si se provee) y consolidado global.
+                    por dom1/dom2/consolidado, metricas del target por
+                    dominio, testing (si se provee) y consolidado global.
     cuts_checkpoint  : arbol de cortes del particionamiento.
     summary          : metricas globales de la ejecucion.
     """

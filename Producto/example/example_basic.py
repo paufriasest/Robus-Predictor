@@ -2,8 +2,6 @@ import pandas as pd
 from robuspredictor import RobusPredictor
 
 # Datasets de entrenamientos
-# TODO: ARREGLAR 
-
 X_train = pd.DataFrame({
     "var1": [
         52, 10, 13, 51, 11, 50, 12, 53,

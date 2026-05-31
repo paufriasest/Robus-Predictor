@@ -63,7 +63,9 @@ def predict_from_stable_cubes(
         2. Se obtiene el group_id final.
         3. Si el group_id está en stable_cubes, se usa su prediction_value.
         4. Si no está, se usa default_value.
-
+        
+    - prediction_value representa la suma de los promedios de los dominios para ese cubo estable.
+    - En predict(), ese valor se asigna a cada registro que cae en ese cubo.
     Parámetros:
     -----------
     X : pd.DataFrame
@@ -138,7 +140,7 @@ def predict_from_stable_cubes(
                     f"index={idx} | "
                     f"grupo={group_id} | "
                     f"zona estable | "
-                    f"pred={prediction}"
+                    f"pred_asignada_registro={prediction}"
                 )
 
         else:
