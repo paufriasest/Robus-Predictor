@@ -18,6 +18,7 @@ class RobusPredictor:
         std_max,
         default_value=0,
         verbose=False,
+        random_state=None,
     ):
         """
         Inicializa el modelo RobusPredictor.
@@ -61,6 +62,13 @@ class RobusPredictor:
 
         verbose       : bool  — Si True, imprime trazabilidad detallada del proceso de
                                 particionamiento, entrenamiento y prediccion.
+
+        random_state  : int o None — Semilla para el generador de numeros aleatorios usado
+                                en el tiebreaker del particionamiento. Con un entero fijo
+                                (ej. random_state=42) los resultados son identicos entre
+                                corridas, lo que permite trazabilidad y reproducibilidad.
+                                Con None (default) el tiebreaker es aleatorio en cada
+                                ejecucion.
         """
         validate_params(n_min, n_max, n_dom, mean_min, mean_max, std_min, std_max)
 
@@ -73,6 +81,7 @@ class RobusPredictor:
         self.std_max       = std_max
         self.default_value = default_value
         self.verbose       = verbose
+        self.random_state  = random_state
 
         self.base_grid     = None
         self.cuts          = None
@@ -107,7 +116,8 @@ class RobusPredictor:
             print(f"[Fit] Dominio base X={x_base.shape}")
 
         self.base_grid = median_partition(
-            x=x_base, n_min=self.n_min, n_max=self.n_max, verbose=self.verbose
+            x=x_base, n_min=self.n_min, n_max=self.n_max,
+            verbose=self.verbose, random_state=self.random_state
         )
 
         if not isinstance(self.base_grid, dict):

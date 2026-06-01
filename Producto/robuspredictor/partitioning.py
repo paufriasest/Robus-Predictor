@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-def median_partition(x, n_min, n_max, verbose=False):
+def median_partition(x, n_min, n_max, verbose=False, random_state=None):
     """
     Divide un dataset usando particiones recursivas locales.
 
@@ -105,12 +105,25 @@ def median_partition(x, n_min, n_max, verbose=False):
             return
         
         variable_corte = variables[nivel % len(variables)]
-        
-        df_ordenado = df_subset.sort_values(
-            by=variable_corte,
-            kind="mergesort",
-            na_position="last"
-        )
+
+        # Ordenar por variable_corte con tiebreaker aleatorio para romper empates.
+        # sort_values(kind="mergesort") es estable: en variables con muchos valores
+        # repetidos (ej. var5, var11-13 ≈ 0) hereda el orden del nivel padre,
+        # creando particiones implícitas por niveles anteriores.
+        # np.lexsort + ruido aleatorio garantiza que los empates se resuelvan al
+        # azar, independientemente del orden recibido.
+        mask_na   = df_subset[variable_corte].isna()
+        df_no_na  = df_subset[~mask_na]
+        df_na     = df_subset[mask_na]
+
+        if len(df_no_na) > 0:
+            rng        = np.random.default_rng(random_state)
+            tiebreaker = rng.random(len(df_no_na))
+            valores    = df_no_na[variable_corte].values.astype(float)
+            orden      = np.lexsort((tiebreaker, valores))
+            df_ordenado = pd.concat([df_no_na.iloc[orden], df_na])
+        else:
+            df_ordenado = df_na
 
         punto_corte = tamaño_actual // 2
 
@@ -266,7 +279,6 @@ def apply_median_cuts(x, cuts, verbose=False):
         mascara_izquierda = df_subset[variable].notna() & (
             df_subset[variable] <= left_max
         )
-        
         izquierda = df_subset[mascara_izquierda].copy()
         derecha = df_subset[~mascara_izquierda].copy()
 

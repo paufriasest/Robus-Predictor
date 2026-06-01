@@ -124,7 +124,7 @@ def select_stable_cubes(
             for stat in domain_stats
             if stat["mean"] is not None
         ]
-        # para la version 0.4 se arregla la prediccion de tal forma que se debe sumar lso promedios de las regioes para asignar como nueva predict
+        # para la version 0.4 se arregla la prediccion de tal forma que se debe sumar los promedios de las regiones para asignar como nueva predict
         sum_means = sum(valid_means) if valid_means else None
         
         # de igual forma dejaremos la variable guardada que lo calculaba con anterioridad como el promedio de promedios de las regiones
