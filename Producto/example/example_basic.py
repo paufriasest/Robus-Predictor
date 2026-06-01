@@ -1,7 +1,7 @@
 import pandas as pd
 from robuspredictor import RobusPredictor
 
-# Datasets de entrenamientos
+# ── Dataset de entrenamiento ──────────────────────────────────────────────────
 X_train = pd.DataFrame({
     "var1": [
         52, 10, 13, 51, 11, 50, 12, 53,
@@ -22,7 +22,7 @@ X_train = pd.DataFrame({
         35.5, 95.5, 36.5, 96.5, 34.5, 94.5, 37.5, 97.5,
     ],
 })
-#target
+
 y_train = pd.Series([
     2.55, 1.50, 1.65, 2.60, 1.60, 2.50, 1.55, 2.65,
     1.70, 2.70, 1.75, 2.75, 1.68, 2.68, 1.78, 2.78,
@@ -30,6 +30,7 @@ y_train = pd.Series([
     1.72, 2.72, 1.77, 2.77, 1.70, 2.70, 1.80, 2.80,
 ])
 
+# ── Instancia del modelo ──────────────────────────────────────────────────────
 modelo = RobusPredictor(
     n_min=2,
     n_max=4,
@@ -42,7 +43,7 @@ modelo = RobusPredictor(
     verbose=True
 )
 
-#FITITIFITIT
+# ── Entrenamiento ─────────────────────────────────────────────────────────────
 modelo.fit(X_train, y_train)
 
 print("\nResumen de dominios:")
@@ -52,33 +53,41 @@ for i, domain in enumerate(modelo.domains, start=1):
     print(f"y shape: {domain['y'].shape}")
     print(f"Cantidad de grupos: {len(domain['groups'])}")
 
-
 print("\nCubos estables:")
 for cube in modelo.stable_cubes:
     print(cube)
-
 
 print("\nZonas rojas:")
 for zone in modelo.red_zones:
     print(zone)
 
-
-# Data de validación
+# ── Dataset de validacion ─────────────────────────────────────────────────────
+# X_valid contiene las variables predictoras de los registros a validar.
+# y_valid contiene los valores reales del target para esos mismos registros,
+# usados para auditar el checkpoint (comparar prediccion vs. realidad por cubo).
 X_valid = pd.DataFrame({
     "var1": [11, 52, 100],
     "var2": [21, 82, 100],
     "var3": [31, 92, 100],
 })
 
+# Valores reales del target para los 3 registros de validacion
+y_valid = pd.Series([1.60, 2.58, 1.75])
 
+# ── Prediccion ────────────────────────────────────────────────────────────────
 resultado = X_valid.copy()
 resultado["pred"] = modelo.predict(X_valid)
-
 
 print("\nPredicciones:")
 print(resultado)
 
+# ── Exportar checkpoint ───────────────────────────────────────────────────────
+# Se pasan X_valid e y_valid para que el checkpoint incluya las columnas
+# n_validacion, prom_target_validacion, std_target_validacion y
+# prom_target_consolidado. Si no se pasan, esas columnas apareceran como null.
 modelo.export_checkpoint(
     path="checkpoint_robuspredictor.xlsx",
-    file_format="xlsx"
+    file_format="xlsx",
+    X_valid=X_valid,
+    y_valid=y_valid,
 )

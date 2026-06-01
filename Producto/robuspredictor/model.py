@@ -74,14 +74,14 @@ class RobusPredictor:
         self.default_value = default_value
         self.verbose       = verbose
 
-        self.base_grid    = None
-        self.cuts         = None
-        self.domains      = None
-        self.stable_cubes = []
-        self.red_zones    = []
+        self.base_grid     = None
+        self.cuts          = None
+        self.domains       = None
+        self.stable_cubes  = []
+        self.red_zones     = []
         self.feature_names = None
-        self.is_fitted    = False
-        self.checkpoint   = None
+        self.is_fitted     = False
+        self.checkpoint    = None
 
     def fit(self, x, y):
         validate_fit_data(x, y, self.n_dom)
@@ -100,8 +100,7 @@ class RobusPredictor:
         if len(self.domains) < 2:
             raise ValueError("Se necesitan al menos 2 dominios para comparar estabilidad.")
 
-        dominio_base = self.domains[0]
-        x_base = dominio_base["x"]
+        x_base = self.domains[0]["x"]
 
         if self.verbose:
             print("\n[Fit] Generando grilla base desde Dominio 1")
@@ -116,12 +115,11 @@ class RobusPredictor:
                 "median_partition debe retornar un diccionario con 'groups' y 'cuts'."
             )
 
-        base_groups = self.base_grid["groups"]
-        self.cuts   = self.base_grid["cuts"]
-        self.domains[0]["groups"] = base_groups
+        self.cuts = self.base_grid["cuts"]
+        self.domains[0]["groups"] = self.base_grid["groups"]
 
         if self.verbose:
-            print(f"\n[Fit] Cubos generados en dominio base: {len(base_groups)}")
+            print(f"\n[Fit] Cubos generados en dominio base: {len(self.base_grid['groups'])}")
             print(f"[Fit] Cortes aprendidos: {len(self.cuts)}")
 
         for i in range(1, len(self.domains)):
@@ -129,15 +127,13 @@ class RobusPredictor:
 
             if self.verbose:
                 print(f"\n[Fit] Aplicando cortes sobre Dominio {i + 1}")
-                print(f"[Fit] Dominio {i + 1} X={domain_x.shape}")
 
-            domain_groups = apply_median_cuts(
+            self.domains[i]["groups"] = apply_median_cuts(
                 x=domain_x, cuts=self.cuts, verbose=self.verbose
             )
-            self.domains[i]["groups"] = domain_groups
 
             if self.verbose:
-                print(f"[Fit] Cubos en Dominio {i + 1}: {len(domain_groups)}")
+                print(f"[Fit] Cubos en Dominio {i + 1}: {len(self.domains[i]['groups'])}")
 
         self.stable_cubes, self.red_zones = select_stable_cubes(
             domains=self.domains,
@@ -165,17 +161,15 @@ class RobusPredictor:
         if missing:
             raise ValueError(f"Faltan columnas en X para predecir: {missing}")
 
-        x = x[self.feature_names]
-
         return predict_from_stable_cubes(
-            X=x,
+            X=x[self.feature_names],
             stable_cubes=self.stable_cubes,
             cuts=self.cuts,
             default_value=self.default_value,
             verbose=self.verbose,
         )
 
-    def export_checkpoint(self, path, file_format="xlsx", X_test=None, y_test=None):
+    def export_checkpoint(self, path, file_format="xlsx", X_valid=None, y_valid=None):
         """
         Exporta el checkpoint de trazabilidad a Excel o CSV.
 
@@ -183,33 +177,31 @@ class RobusPredictor:
         -----------
         path        : str          — ruta de salida ('checkpoint.xlsx' o 'checkpoint.csv')
         file_format : str          — 'xlsx' o 'csv'
-        X_test      : pd.DataFrame — dataset de testing (features). Opcional.
+        X_valid     : pd.DataFrame — dataset de validacion (features). Opcional.
                       Si se provee, se aplican los cortes aprendidos para asignar
-                      cada registro de testing al cubo correspondiente, y se
-                      agregan las columnas n_testing, prom_target_testing,
-                      std_target_testing y prom_target_consolidado al checkpoint.
-        y_test      : pd.Series    — target real del dataset de testing. Requerido
-                      si se provee X_test.
+                      cada registro de validacion al cubo correspondiente. Se agregan
+                      al checkpoint las columnas n_validacion, prom_target_validacion,
+                      std_target_validacion y prom_target_consolidado.
+        y_valid     : pd.Series    — target real del dataset de validacion.
+                      Requerido si se provee X_valid.
         """
         if not self.is_fitted:
             raise ValueError("El modelo debe entrenarse con fit() antes de exportar checkpoint.")
 
-        # Procesar datos de testing si se proveen
-        testing_groups = None
-        y_testing      = None
+        validacion_groups = None
+        y_validacion      = None
 
-        if X_test is not None and y_test is not None:
+        if X_valid is not None and y_valid is not None:
             if self.verbose:
-                print("[Checkpoint] Aplicando cortes a datos de testing...")
+                print("[Checkpoint] Aplicando cortes a datos de validacion...")
 
-            X_test = X_test[self.feature_names]
-            testing_groups = apply_median_cuts(
-                x=X_test, cuts=self.cuts, verbose=False
+            validacion_groups = apply_median_cuts(
+                x=X_valid[self.feature_names], cuts=self.cuts, verbose=False
             )
-            y_testing = y_test
+            y_validacion = y_valid
 
             if self.verbose:
-                print(f"[Checkpoint] Grupos de testing generados: {len(testing_groups)}")
+                print(f"[Checkpoint] Grupos de validacion generados: {len(validacion_groups)}")
 
         self.checkpoint = export_checkpoint(
             path=path,
@@ -219,8 +211,8 @@ class RobusPredictor:
             cuts=self.cuts,
             feature_names=self.feature_names,
             file_format=file_format,
-            testing_groups=testing_groups,
-            y_testing=y_testing,
+            validacion_groups=validacion_groups,
+            y_validacion=y_validacion,
         )
 
         if self.verbose:

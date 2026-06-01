@@ -36,8 +36,8 @@ def build_cubes_checkpoint(
     stable_cubes,
     red_zones,
     feature_names,
-    testing_groups=None,
-    y_testing=None,
+    validacion_groups=None,
+    y_validacion=None,
 ):
     """
     Construye el DataFrame de auditoria de cubos.
@@ -45,29 +45,39 @@ def build_cubes_checkpoint(
     Estructura de columnas (sin JSON, todo legible en Excel):
 
     Identificacion:
-        id_cubo | estable | valor_prediccion | motivo_rechazo
-        profundidad_particion
+        id_cubo | estable | valor_prediccion
+        suma_prom_dominios_entrenamiento   : suma de los promedios del target por dominio de entrenamiento (= valor_prediccion)
+        promedio_prom_dominios_entrenamiento : promedio de los promedios del target por dominio de entrenamiento
+        prom_dominios_entrenamiento_detalle  : lista JSON con el promedio de cada dominio de entrenamiento por separado
+        motivo_rechazo | profundidad_particion
 
     Promedios de variables predictoras por dominio:
-        prom_<var>_dom1   : promedio en el dominio de entrenamiento (referencia espacial)
-        prom_<var>_dom2   : promedio en el dominio de validacion interna
-        prom_<var>_consol : promedio consolidado (dom1 + dom2)
+        prom_<var>_dom1   : promedio en dominio 1 (referencia espacial del cubo)
+        prom_<var>_dom2   : promedio en dominio 2 (validacion interna)
+        prom_<var>_consol : promedio consolidado dom1 + dom2
 
-    Metricas del target por dominio:
+    Metricas del target por dominio de entrenamiento:
         n_dom1     | prom_target_dom1 | std_target_dom1
         n_dom2     | prom_target_dom2 | std_target_dom2
-        n_testing  | prom_target_testing | std_target_testing  (si se proveen datos)
-        prom_target_consolidado : promedio de todos los dominios disponibles
+
+    Metricas del target — dataset de validacion (columnas opcionales):
+        n_validacion           : registros del dataset de validacion en este cubo
+        prom_target_validacion : promedio del target real en validacion para este cubo
+        std_target_validacion  : desviacion estandar del target real en validacion
+
+    Consolidado:
+        prom_target_consolidado : promedio de todos los promedios disponibles
+                                  (dom1 + dom2 + validacion)
 
     Parametros opcionales:
-        testing_groups : dict[str, pd.DataFrame]  — grupos del dataset de testing
-                        generados con apply_median_cuts(X_test, cuts)
-        y_testing      : pd.Series                — target real del dataset de testing
+        validacion_groups : dict[str, pd.DataFrame]  — grupos del dataset de validacion,
+                            generados con apply_median_cuts(X_valid, cuts)
+        y_validacion      : pd.Series                — target real del dataset de validacion
     """
-    cubos_estables = _obtener_info_cubos(stable_cubes)
-    zonas_rojas    = _obtener_info_cubos(red_zones)
-    ids_cubos      = sorted(set(cubos_estables.keys()) | set(zonas_rojas.keys()))
-    tiene_testing  = testing_groups is not None and y_testing is not None
+    cubos_estables  = _obtener_info_cubos(stable_cubes)
+    zonas_rojas     = _obtener_info_cubos(red_zones)
+    ids_cubos       = sorted(set(cubos_estables.keys()) | set(zonas_rojas.keys()))
+    tiene_validacion = validacion_groups is not None and y_validacion is not None
 
     filas = []
 
@@ -77,43 +87,41 @@ def build_cubes_checkpoint(
 
         # ── Identificacion ───────────────────────────────────────────────────
         fila = {
-            "id_cubo": id_cubo,
-            "estable": 1 if es_estable else 0,
-            "valor_prediccion": info_cubo.get("prediction_value"),
-            "suma_promedios_region": info_cubo.get("sum_means"),
-            "promedio_promedios_region": info_cubo.get("mean_of_means"),
-            "promedios_region_por_dominio": json.dumps(
-                info_cubo.get("domain_means", []),
-                ensure_ascii=False
-            ),
-            "motivo_rechazo": json.dumps(
-                                info_cubo.get("rejection_reasons", []),
-                                ensure_ascii=False
-                            ),
-            "profundidad_particion": len(id_cubo),
+            "id_cubo":    id_cubo,
+            "estable":    1 if es_estable else 0,
+            # valor_prediccion = suma de promedios de dominios de entrenamiento
+            "valor_prediccion":                       info_cubo.get("prediction_value"),
+            # suma_prom_dominios_entrenamiento: misma cifra que valor_prediccion,
+            # expuesta explicitamente para auditoria
+            "suma_prom_dominios_entrenamiento":        info_cubo.get("sum_means"),
+            # promedio de los promedios de cada dominio de entrenamiento
+            "promedio_prom_dominios_entrenamiento":    info_cubo.get("mean_of_means"),
+            # lista JSON con el promedio individual de cada dominio de entrenamiento
+            "prom_dominios_entrenamiento_detalle":     json.dumps(
+                                                           info_cubo.get("domain_means", []),
+                                                           ensure_ascii=False
+                                                       ),
+            "motivo_rechazo":                         json.dumps(
+                                                           info_cubo.get("rejection_reasons", []),
+                                                           ensure_ascii=False
+                                                       ),
+            "profundidad_particion":                  len(id_cubo),
         }
 
         # ── Promedios de variables predictoras por dominio ───────────────────
         grupo_dom1 = domains[0]["groups"].get(id_cubo, pd.DataFrame())
         grupo_dom2 = domains[1]["groups"].get(id_cubo, pd.DataFrame()) \
-                    if len(domains) > 1 else pd.DataFrame()
+                     if len(domains) > 1 else pd.DataFrame()
 
         for variable in feature_names:
-            # Dom1 — referencia espacial del cubo
-            if grupo_dom1.empty or variable not in grupo_dom1.columns:
-                prom_d1 = None
-            else:
-                prom_d1 = _promedio(grupo_dom1[variable])
+            prom_d1 = None if (grupo_dom1.empty or variable not in grupo_dom1.columns) \
+                      else _promedio(grupo_dom1[variable])
+            prom_d2 = None if (grupo_dom2.empty or variable not in grupo_dom2.columns) \
+                      else _promedio(grupo_dom2[variable])
 
-            # Dom2 — validacion interna
-            if grupo_dom2.empty or variable not in grupo_dom2.columns:
-                prom_d2 = None
-            else:
-                prom_d2 = _promedio(grupo_dom2[variable])
-
-            fila["prom_" + variable + "_dom1"]   = prom_d1
-            fila["prom_" + variable + "_dom2"]   = prom_d2
-            fila["prom_" + variable + "_consol"]  = _promedio_consolidado(prom_d1, prom_d2)
+            fila["prom_" + variable + "_dom1"]  = prom_d1
+            fila["prom_" + variable + "_dom2"]  = prom_d2
+            fila["prom_" + variable + "_consol"] = _promedio_consolidado(prom_d1, prom_d2)
 
         # ── Metricas del target — Dom1 ────────────────────────────────────────
         x_d1 = domains[0]["groups"].get(id_cubo, pd.DataFrame())
@@ -128,8 +136,8 @@ def build_cubes_checkpoint(
         fila["prom_target_dom1"] = _promedio(y_d1)
         fila["std_target_dom1"]  = _std(y_d1)
 
-        # ── Metricas del target — Dom2 (y dominios adicionales) ──────────────
-        prom_adicionales = [fila["prom_target_dom1"]]   # acumula para consolidado
+        # ── Metricas del target — dominios adicionales ────────────────────────
+        prom_adicionales = [fila["prom_target_dom1"]]
 
         for i in range(1, len(domains)):
             x_di = domains[i]["groups"].get(id_cubo, pd.DataFrame())
@@ -140,40 +148,37 @@ def build_cubes_checkpoint(
                 if isinstance(y_di, pd.DataFrame):
                     y_di = y_di.iloc[:, 0]
 
-            n    = len(y_di)
             prom = _promedio(y_di)
-            std  = _std(y_di)
-
-            fila["n_dom"           + str(i + 1)] = n
+            fila["n_dom"           + str(i + 1)] = len(y_di)
             fila["prom_target_dom" + str(i + 1)] = prom
-            fila["std_target_dom"  + str(i + 1)] = std
+            fila["std_target_dom"  + str(i + 1)] = _std(y_di)
 
             if prom is not None:
                 prom_adicionales.append(prom)
 
-        # ── Metricas del target — Testing (opcional) ──────────────────────────
-        if tiene_testing:
-            x_test = testing_groups.get(id_cubo, pd.DataFrame())
-            if x_test.empty:
-                y_test_cubo = pd.Series([], dtype=float)
+        # ── Metricas del target — Dataset de validacion (opcional) ─────────────
+        if tiene_validacion:
+            x_val = validacion_groups.get(id_cubo, pd.DataFrame())
+            if x_val.empty:
+                y_val_cubo = pd.Series([], dtype=float)
             else:
-                y_test_cubo = y_testing.loc[x_test.index]
-                if isinstance(y_test_cubo, pd.DataFrame):
-                    y_test_cubo = y_test_cubo.iloc[:, 0]
+                y_val_cubo = y_validacion.loc[x_val.index]
+                if isinstance(y_val_cubo, pd.DataFrame):
+                    y_val_cubo = y_val_cubo.iloc[:, 0]
 
-            prom_test = _promedio(y_test_cubo)
-            fila["n_testing"]           = len(y_test_cubo)
-            fila["prom_target_testing"] = prom_test
-            fila["std_target_testing"]  = _std(y_test_cubo)
+            prom_val = _promedio(y_val_cubo)
+            fila["n_validacion"]           = len(y_val_cubo)
+            fila["prom_target_validacion"] = prom_val
+            fila["std_target_validacion"]  = _std(y_val_cubo)
 
-            if prom_test is not None:
-                prom_adicionales.append(prom_test)
+            if prom_val is not None:
+                prom_adicionales.append(prom_val)
         else:
-            fila["n_testing"]           = None
-            fila["prom_target_testing"] = None
-            fila["std_target_testing"]  = None
+            fila["n_validacion"]           = None
+            fila["prom_target_validacion"] = None
+            fila["std_target_validacion"]  = None
 
-        # ── Promedio target consolidado (todos los dominios + testing) ────────
+        # ── Consolidado final ─────────────────────────────────────────────────
         fila["prom_target_consolidado"] = _promedio_consolidado(*prom_adicionales)
 
         filas.append(fila)
@@ -229,23 +234,21 @@ def build_summary_checkpoint(stable_cubes, red_zones, cuts, domains):
     ]
 
     for i, dominio in enumerate(domains, start=1):
-        grupos  = dominio.get("groups", {})
+        grupos   = dominio.get("groups", {})
         tamanios = [len(g) for g in grupos.values()]
-
         if not tamanios:
             continue
-
         filas.extend([
             {"metrica": "dominio_" + str(i) + "_total_grupos",
-            "valor": len(tamanios)},
+             "valor": len(tamanios)},
             {"metrica": "dominio_" + str(i) + "_tamanio_minimo_grupo",
-            "valor": min(tamanios)},
+             "valor": min(tamanios)},
             {"metrica": "dominio_" + str(i) + "_tamanio_maximo_grupo",
-            "valor": max(tamanios)},
+             "valor": max(tamanios)},
             {"metrica": "dominio_" + str(i) + "_tamanio_promedio_grupo",
-            "valor": sum(tamanios) / len(tamanios)},
+             "valor": sum(tamanios) / len(tamanios)},
             {"metrica": "dominio_" + str(i) + "_grupos_vacios",
-            "valor": sum(1 for t in tamanios if t == 0)},
+             "valor": sum(1 for t in tamanios if t == 0)},
         ])
 
     return pd.DataFrame(filas)
@@ -261,41 +264,33 @@ def export_checkpoint(
     cuts,
     feature_names,
     file_format="xlsx",
-    testing_groups=None,
-    y_testing=None,
+    validacion_groups=None,
+    y_validacion=None,
 ):
     """
     Exporta el checkpoint de trazabilidad a Excel o CSV.
 
     Parametros:
     -----------
-    path           : str                  — ruta de salida
-    domains        : list[dict]           — dominios usados en fit()
-    stable_cubes   : list[dict]           — cubos estables
-    red_zones      : list[dict]           — zonas rojas
-    cuts           : list[dict]           — cortes aprendidos
-    feature_names  : list[str]            — variables predictoras
-    file_format    : str                  — 'xlsx' o 'csv'
-    testing_groups : dict[str, DataFrame] — grupos del dataset de testing,
-                    generados con apply_median_cuts(X_test, cuts). Opcional.
-    y_testing      : pd.Series            — target real del dataset de testing.
-                    Requerido si se provee testing_groups.
-
-    Hojas generadas (xlsx):
-    -----------------------
-    cubes_checkpoint : una fila por cubo. Incluye promedios de predictoras
-                    por dom1/dom2/consolidado, metricas del target por
-                    dominio, testing (si se provee) y consolidado global.
-    cuts_checkpoint  : arbol de cortes del particionamiento.
-    summary          : metricas globales de la ejecucion.
+    path               : str                  — ruta de salida
+    domains            : list[dict]           — dominios de entrenamiento
+    stable_cubes       : list[dict]           — cubos estables
+    red_zones          : list[dict]           — zonas rojas
+    cuts               : list[dict]           — cortes aprendidos
+    feature_names      : list[str]            — variables predictoras
+    file_format        : str                  — 'xlsx' o 'csv'
+    validacion_groups  : dict[str, DataFrame] — grupos del dataset de validacion,
+                         generados con apply_median_cuts(X_valid, cuts). Opcional.
+    y_validacion       : pd.Series            — target real del dataset de validacion.
+                         Requerido si se provee validacion_groups.
     """
     cubes_df = build_cubes_checkpoint(
         domains=domains,
         stable_cubes=stable_cubes,
         red_zones=red_zones,
         feature_names=feature_names,
-        testing_groups=testing_groups,
-        y_testing=y_testing,
+        validacion_groups=validacion_groups,
+        y_validacion=y_validacion,
     )
     cuts_df    = build_cuts_checkpoint(cuts)
     summary_df = build_summary_checkpoint(
@@ -310,10 +305,8 @@ def export_checkpoint(
             cubes_df.to_excel(  writer, sheet_name="cubes_checkpoint", index=False)
             cuts_df.to_excel(   writer, sheet_name="cuts_checkpoint",  index=False)
             summary_df.to_excel(writer, sheet_name="summary",          index=False)
-
     elif file_format == "csv":
         cubes_df.to_csv(path, index=False, sep=",")
-
     else:
         raise ValueError("file_format debe ser 'xlsx' o 'csv'.")
 
