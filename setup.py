@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='robusPredictor',
-    version='0.3.0',
+    version='0.4.0',
     description='Algoritmo predictivo para Formulisa',
     author='Sebastian y Paula',
     author_email='se.valdivia@duocuc.cl',
