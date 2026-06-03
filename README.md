@@ -4,7 +4,7 @@
 ![NumPy](https://img.shields.io/badge/NumPy-1.24.4-013243?logo=numpy&logoColor=white)
 ![Pandas](https://img.shields.io/badge/Pandas-2.0.3-150458?logo=pandas&logoColor=white)
 ![Scikit-Learn](https://img.shields.io/badge/Scikit--Learn-1.3.2-F7931E?logo=scikitlearn&logoColor=white)
-![Version](https://img.shields.io/badge/Version-0.4.0-green)
+![Version](https://img.shields.io/badge/Version-1.0.0-green)
 ![Status](https://img.shields.io/badge/Status-Development-yellow)
 
 ## Descripción
