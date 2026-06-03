@@ -3,7 +3,7 @@ from .partitioning import median_partition, apply_median_cuts
 from .stability import select_stable_cubes
 from .prediction import predict_from_stable_cubes
 from .domains import split_training_domains
-from .checkpoint import export_checkpoint
+from .checkpoint import export_checkpoint, export_prediction_checkpoint
 
 
 class RobusPredictor:
@@ -188,12 +188,12 @@ class RobusPredictor:
         path        : str          — ruta de salida ('checkpoint.xlsx' o 'checkpoint.csv')
         file_format : str          — 'xlsx' o 'csv'
         X_valid     : pd.DataFrame — dataset de validacion (features). Opcional.
-                      Si se provee, se aplican los cortes aprendidos para asignar
-                      cada registro de validacion al cubo correspondiente. Se agregan
-                      al checkpoint las columnas n_validacion, prom_target_validacion,
-                      std_target_validacion y prom_target_consolidado.
+                    Si se provee, se aplican los cortes aprendidos para asignar
+                    cada registro de validacion al cubo correspondiente. Se agregan
+                    al checkpoint las columnas n_validacion, prom_target_validacion,
+                    std_target_validacion y prom_target_consolidado.
         y_valid     : pd.Series    — target real del dataset de validacion.
-                      Requerido si se provee X_valid.
+                    Requerido si se provee X_valid.
         """
         if not self.is_fitted:
             raise ValueError("El modelo debe entrenarse con fit() antes de exportar checkpoint.")
@@ -229,3 +229,38 @@ class RobusPredictor:
             print(f"[Checkpoint] Exportado correctamente en: {path}")
 
         return self.checkpoint
+    
+    def export_prediction_checkpoint(
+        self,
+        X,
+        y=None,
+        path="scoring_robuspredictor.xlsx",
+        dato_real=None,
+        file_format="xlsx"
+        ):
+        if not self.is_fitted:
+            raise ValueError("El modelo debe entrenarse con fit() antes de exportar predicciones.")
+        
+        validate_predict_data(X)
+        
+        missing_columns = set(self.feature_names) - set(X.columns)
+        
+        if missing_columns:
+            raise ValueError(f"Faltan columnas en X para predecir: {missing_columns}")
+        
+        X = X[self.feature_names].copy()
+        
+        prediction_checkpoint = export_prediction_checkpoint(
+            X=X,
+            y=y,
+            path=path,
+            dato_real=dato_real,
+            stable_cubes=self.stable_cubes,
+            red_zones=self.red_zones,
+            cuts=self.cuts,
+            default_value=self.default_value,
+            feature_names=self.feature_names,
+            file_format=file_format
+        )
+        
+        return prediction_checkpoint

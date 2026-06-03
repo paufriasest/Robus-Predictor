@@ -118,30 +118,26 @@ def select_stable_cubes(
                 "is_valid": group_valid,
                 "reason": "; ".join(reason) if reason else "OK"
             })
-
+            
+        # falto una validacion de que en caso de no encontrar promedio daria NaN, de esta forma o entrará en el calculo
         valid_means = [
             stat["mean"]
             for stat in domain_stats
-            if stat["mean"] is not None
+            if stat["mean"] is not None and pd.notna(stat["mean"])
         ]
-        # para la version 0.4 se arregla la prediccion de tal forma que se deben sumar los promedios de las regiones para asignar como nueva prediccion
-        sum_means = sum(valid_means) if valid_means else None
         
-        # de igual forma dejaremos la variable guardada que lo calculaba con anterioridad como el promedio de promedios de las regiones
+        # Se vuelve a la logica de promedio de los promedios
         mean_of_means = (
             sum(valid_means) / len(valid_means)
             if valid_means
             else None
         )
-
-        # se deja el prediction_value con el valor de las sumas
-        prediction_value = sum_means
-
-        # se mantienen ambas variables para trazabilidad interna 
+        
+        prediction_value = mean_of_means
+        
         cube_info = {
             "group_id": group_id,
             "prediction_value": prediction_value,
-            "sum_means": sum_means,
             "mean_of_means": mean_of_means,
             "domain_means": valid_means,
             "stats": domain_stats,

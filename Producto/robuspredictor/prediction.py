@@ -1,5 +1,5 @@
 import pandas as pd
-
+import json
 
 def get_row_group_id(row, cuts_by_node):
     """
@@ -64,7 +64,7 @@ def predict_from_stable_cubes(
         3. Si el group_id está en stable_cubes, se usa su prediction_value.
         4. Si no está, se usa default_value.
         
-    - prediction_value representa la suma de los promedios de los dominios para ese cubo estable.
+    - prediction_value representa el promedio de los promedios de la región estable entre dominios
     - En predict(), ese valor se asigna a cada registro que cae en ese cubo.
     Parámetros:
     -----------
@@ -158,3 +158,81 @@ def predict_from_stable_cubes(
         predictions.append(prediction)
 
     return pd.Series(predictions, index=X.index, name="pred")
+
+# Funcion que ocuparemos para guardar informacion respecto a los cubos que se les hace la predicción
+def build_prediction_detail(
+    X,
+    stable_cubes,
+    red_zones,
+    cuts,
+    default_value
+):
+    
+    if not isinstance(X, pd.DataFrame):
+        raise TypeError("X debe ser un pandas DataFrame.")
+    
+    if stable_cubes is None:
+        raise ValueError("stable_cubes no puede ser None.")
+    
+    if red_zones is None:
+        red_zones = []
+        
+    if cuts is None:
+        raise ValueError("cuts no puede ser None.")
+    
+    cuts_by_node = {
+        cut["node_id"]: cut
+        for cut in cuts
+    }
+    
+    stable_cubes_by_group = {
+        cube["group_id"]: cube
+        for cube in stable_cubes
+    }
+    
+    red_zones_by_group = {
+        cube["group_id"]: cube
+        for cube in red_zones
+    }
+    
+    rows = []
+    
+    for idx, row in X.iterrows():
+        
+        group_id = get_row_group_id(
+            row=row,
+            cuts_by_node=cuts_by_node
+        )
+        
+        if group_id in stable_cubes_by_group:
+            cube = stable_cubes_by_group[group_id]
+            stable = 1
+            promedio_cubo = cube.get("prediction_value")
+            prediccion_aplicada = promedio_cubo
+            motivo_rechazo = []
+        
+        else:
+            stable = 0
+            prediccion_aplicada = default_value
+            
+            if group_id in red_zones_by_group:
+                cube = red_zones_by_group[group_id]
+                promedio_cubo = cube.get("prediction_value")
+                motivo_rechazo = cube.get("rejection_reasons", [])
+            else:
+                promedio_cubo = None
+                motivo_rechazo = [
+                    "El registro cayó en un cubo no encontrado dentro de stable_cubes ni red_zones."
+                ]
+        
+        rows.append({
+            "indice_registro": idx,
+            "id_cubo": group_id,
+            "estable": stable,
+            "promedio_cubo": promedio_cubo,
+            "prediccion_aplicada": prediccion_aplicada,
+            "motivo_rechazo": json.dumps(motivo_rechazo, ensure_ascii=False),
+        })
+        
+        
+    return pd.DataFrame(rows).set_index("indice_registro")
