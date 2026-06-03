@@ -32,8 +32,8 @@ y_train = pd.Series([
 
 # ── Instancia del modelo ──────────────────────────────────────────────────────
 modelo = RobusPredictor(
-    n_min=2,
-    n_max=4,
+    n_min=2, #LIMITES INCLUSIVOS
+    n_max=4, #LIMITES INCLUSIVOS  n_min <= tamaño_del_grupo <= n_max
     n_dom=2,
     mean_max=3.0,
     mean_min=1.0,
@@ -90,4 +90,12 @@ modelo.export_checkpoint(
     file_format="xlsx",
     X_valid=X_valid,
     y_valid=y_valid,
+)
+
+# Exportar el excel que sirve para la trazabilidad de las predicciones efectuadas, ocupa los mismos parametros que el excel anterior
+modelo.export_prediction_checkpoint(
+    X=X_valid,
+    y=y_valid,
+    path="predicciones_robuspredictor.xlsx",
+    file_format="xlsx"
 )

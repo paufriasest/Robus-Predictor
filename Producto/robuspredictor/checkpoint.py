@@ -1,5 +1,6 @@
 import json
 import pandas as pd
+from .prediction import build_prediction_detail
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -46,7 +47,6 @@ def build_cubes_checkpoint(
 
     Identificacion:
         id_cubo | estable | valor_prediccion
-        suma_prom_dominios_entrenamiento   : suma de los promedios del target por dominio de entrenamiento (= valor_prediccion)
         promedio_prom_dominios_entrenamiento : promedio de los promedios del target por dominio de entrenamiento
         prom_dominios_entrenamiento_detalle  : lista JSON con el promedio de cada dominio de entrenamiento por separado
         motivo_rechazo | profundidad_particion
@@ -89,11 +89,8 @@ def build_cubes_checkpoint(
         fila = {
             "id_cubo":    id_cubo,
             "estable":    1 if es_estable else 0,
-            # valor_prediccion = suma de promedios de dominios de entrenamiento
+            # valor_prediccion = preoedio proedios
             "valor_prediccion":                       info_cubo.get("prediction_value"),
-            # suma_prom_dominios_entrenamiento: misma cifra que valor_prediccion,
-            # expuesta explicitamente para auditoria
-            "suma_prom_dominios_entrenamiento":        info_cubo.get("sum_means"),
             # promedio de los promedios de cada dominio de entrenamiento
             "promedio_prom_dominios_entrenamiento":    info_cubo.get("mean_of_means"),
             # lista JSON con el promedio individual de cada dominio de entrenamiento
@@ -315,3 +312,119 @@ def export_checkpoint(
         "cuts_checkpoint":  cuts_df,
         "summary":          summary_df,
     }
+
+# funcion para exportar el segudo excel con info de la prediccion
+def export_prediction_checkpoint(
+    X,
+    y,
+    path,
+    dato_real,
+    stable_cubes,
+    red_zones,
+    cuts,
+    default_value,
+    feature_names,
+    file_format="xlsx"
+):
+    """
+    Exporta un checkpoint de predicción a nivel de registro.
+    columnas:
+    - variables og recibidas
+    - target, si fue entregado
+    - id_cubo
+    - estable
+    - promedio_cubo
+    - prediccion_aplicada
+    - motivo_rechazo
+    """
+    
+    
+    if not isinstance(X, pd.DataFrame):
+        raise TypeError("X debe ser un DataFrame de pandas.")
+    
+    X_export = X[feature_names].copy()
+    
+    if y is not None:
+        if isinstance(y, pd.DataFrame):
+            if y.shape[1] != 1:
+                raise ValueError("y debe ser una Series o un DataFrame de una sola columna.")
+            
+            y_export = y.iloc[:, 0]
+            
+        elif isinstance(y, pd.Series):
+            y_export = y
+        
+        else:
+            raise TypeError("y debe ser None, Series o DataFrame.")
+        
+        if len(X_export) != len(y_export):
+            raise ValueError("X e y deben tener la misma cantidad de filas.")
+        
+        if not X_export.index.equals(y_export.index):
+            raise ValueError("X e y deben tener el mismo índice.")
+        
+        X_export["target"] = y_export
+    
+    detail_df = build_prediction_detail(
+        X=X_export[feature_names],
+        stable_cubes=stable_cubes,
+        red_zones=red_zones,
+        cuts=cuts,
+        default_value=default_value
+    )
+    
+    prediction_checkpoint = X_export.join(detail_df) 
+    
+    # nueva columna para saber si hay arriendo de acuerdo a superar el umbral de 1.5
+    prediction_checkpoint["arriendo_segun_predict"] = (
+        prediction_checkpoint["prediccion_aplicada"] > 1.5
+    ).astype(int)
+    
+    if dato_real is not None:
+        if isinstance(dato_real, pd.DataFrame):
+            if dato_real.shape[1] != 1:
+                raise ValueError(
+                    "dato_real debe ser una Series o un DataFrame de una sola columna."
+                )
+            
+            dato_real = dato_real.iloc[:, 0]
+        
+        elif not isinstance(dato_real, pd.Series):
+            raise TypeError("dato_real debe ser None, Series o DataFrame.")
+        
+        if len(prediction_checkpoint) != len(dato_real):
+            raise ValueError(
+                "prediction_checkpoint y dato_real deben tener la misma cantidad de filas."
+            )
+        
+        if not prediction_checkpoint.index.equals(dato_real.index):
+            raise ValueError(
+                "prediction_checkpoint y dato_real deben tener el mismo índice."
+            )
+        
+    prediction_checkpoint["ARRIENDO_REAL"] = dato_real.astype(int)
+    
+    # si el modelo y el dato real dan 1 marcará como acierto real de otra forma no
+    prediction_checkpoint["acierto_del_modelo_de_acuerdo_arriendo_predict"] = (
+        (prediction_checkpoint["arriendo_segun_predict"] == 1)
+        & (prediction_checkpoint["ARRIENDO_REAL"] == 1)
+    ).astype(int)
+    
+    prediction_checkpoint.index = range(1, len(prediction_checkpoint) + 1)
+    
+    if file_format == "xlsx":
+            with pd.ExcelWriter(path, engine="openpyxl") as writer:
+                prediction_checkpoint.to_excel(
+                    writer,
+                    sheet_name="predicciones_checkpoint",
+                    index=True,
+                    index_label="id_registro"
+                )
+    
+    elif file_format == "csv":
+        prediction_checkpoint.to_csv(path, index=True, sep=",")
+    
+    else:
+        raise ValueError("file_format debe ser 'xlsx' o 'csv'.")
+    
+    return prediction_checkpoint
