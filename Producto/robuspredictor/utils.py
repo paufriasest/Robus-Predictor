@@ -18,7 +18,9 @@ def validate_params(
     mean_min,
     mean_max,
     std_min,
-    std_max
+    std_max,
+    use_default_value=True,
+    default_value=0
 ):
     # Tipos enteros
     if not isinstance(n_min, int) or isinstance(n_min, bool):
@@ -70,6 +72,14 @@ def validate_params(
 
     if std_min > std_max:
         raise ValueError("std_min no puede ser mayor que std_max.")
+    
+    if not isinstance(use_default_value, bool):
+        raise TypeError("use_default_value debe ser booleano: True o False.")
+    
+    if use_default_value and not _is_number(default_value):
+        raise TypeError(
+            "default_value debe ser numérico cuando use_default_value=True."
+        )
 
 
 # Función que valida los parámetros para .fit()

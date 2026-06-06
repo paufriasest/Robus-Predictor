@@ -4,6 +4,7 @@ from .stability import select_stable_cubes
 from .prediction import predict_from_stable_cubes
 from .domains import split_training_domains
 from .checkpoint import export_checkpoint, export_prediction_checkpoint
+from .metrics import calculate_precision_top_percentage
 
 
 class RobusPredictor:
@@ -16,6 +17,7 @@ class RobusPredictor:
         mean_max,
         std_min,
         std_max,
+        use_default_value=True,
         default_value=0,
         verbose=False,
         random_state=None,
@@ -70,7 +72,7 @@ class RobusPredictor:
                                 Con None (default) el tiebreaker es aleatorio en cada
                                 ejecucion.
         """
-        validate_params(n_min, n_max, n_dom, mean_min, mean_max, std_min, std_max)
+        validate_params(n_min, n_max, n_dom, mean_min, mean_max, std_min, std_max, use_default_value, default_value)
 
         self.n_min         = n_min
         self.n_max         = n_max
@@ -79,6 +81,7 @@ class RobusPredictor:
         self.mean_min      = mean_min
         self.std_min       = std_min
         self.std_max       = std_max
+        self.use_default_value = use_default_value
         self.default_value = default_value
         self.verbose       = verbose
         self.random_state  = random_state
@@ -91,6 +94,7 @@ class RobusPredictor:
         self.feature_names = None
         self.is_fitted     = False
         self.checkpoint    = None
+        self.last_predictions = None
 
     def fit(self, x, y):
         validate_fit_data(x, y, self.n_dom)
@@ -171,13 +175,19 @@ class RobusPredictor:
         if missing:
             raise ValueError(f"Faltan columnas en X para predecir: {missing}")
 
-        return predict_from_stable_cubes(
+        predictions = predict_from_stable_cubes(
             X=x[self.feature_names],
             stable_cubes=self.stable_cubes,
+            red_zones=self.red_zones,
             cuts=self.cuts,
+            use_default_value=self.use_default_value,
             default_value=self.default_value,
             verbose=self.verbose,
         )
+        
+        self.last_predictions = predictions
+        
+        return predictions
 
     def export_checkpoint(self, path, file_format="xlsx", X_valid=None, y_valid=None):
         """
@@ -264,3 +274,44 @@ class RobusPredictor:
         )
         
         return prediction_checkpoint
+    
+    
+    def best_percentage(self, y_target, top_pct=0.05):
+        """
+        Calcula la precisión del modelo en el Top N% de predicciones más altas.
+        
+        Parámetros:
+        -----------
+        X : pd.DataFrame
+            Datos a predecir.
+        
+        y_target : pd.Series
+            Variable real binaria. Ejemplo: ARRIENDO, con valores 0 o 1.
+        
+        top_pct : float
+            Porcentaje superior a evaluar.
+            Ejemplo:
+                0.05 = Top 5%
+                0.10 = Top 10%
+                0.20 = Top 20%
+        Retorna:
+        --------
+        dict
+            Métricas del top porcentaje.
+        """
+        if not self.is_fitted:
+            raise ValueError("El modelo debe entrenarse con fit() antes de calcular métricas.")
+        
+        if self.last_predictions is None:
+            raise ValueError(
+                "No existen predicciones previas. "
+                "Debe ejecutar modelo.predict(X) antes de llamar a best_percentage()."
+            )
+        
+        result = calculate_precision_top_percentage(
+            y_pred=self.last_predictions,
+            y_target=y_target,
+            top_pct=top_pct
+        )
+        
+        return result["precision"]

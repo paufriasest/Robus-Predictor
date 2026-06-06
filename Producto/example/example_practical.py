@@ -26,15 +26,16 @@ y_valid = VALIDACION[target]
 ARRIENDO_REAL= VALIDACION["ARRIENDO"]
 
 modelo = RobusPredictor(
-    n_min= 3,
-    n_max= 4,
+    n_min= 3, #LIMITES INCLUSIVOS
+    n_max= 4, #LIMITES INCLUSIVOS  n_min <= tamaño_del_grupo <= n_max
     n_dom= 2,
     mean_min= 0.05,
     mean_max=  16.0,
     std_min=  0.0,
     std_max=  16.0,
-    default_value= 0,
-    verbose=  False,
+    use_default_value=True, #por default viene true asique se puede no llamar
+    default_value= 0, #por default viene en 0 asi que se puede no llamar
+    verbose=False,
     random_state=  42, 
 )
 
@@ -83,3 +84,25 @@ modelo.export_prediction_checkpoint(
     dato_real=ARRIENDO_REAL,
     file_format="xlsx"
 )
+
+# NUEVA FUNCION OMAIGAAA: Mejor N% 
+# Recibe:
+#       y_target que es la variable target que nos interesa calcular su porcentaje del mejor N %
+#       top_pct: porcentaje que se debe ingresar de forma decimal entre 0 y 1
+resultado_top5 = modelo.best_percentage(
+    y_target=ARRIENDO_REAL,
+    top_pct=0.05
+)
+
+print(resultado_top5)
+print(f"Scoring Top 5%: {resultado_top5:.2%}")
+# En este caso el output es de 1.0 entonces
+# El 100% de los registros ubicados en el 5% superior de predicciones realmente tuvo ARRIENDO = 1.
+
+# Lo que nos entrega es solamente el float del scoring
+# entonces el 5% es la cantidad total de registros que fueron predichos por el modelo
+# 1. Toma todas las predicciones.
+# 2. Las ordena de mayor a menor.
+# 3. Selecciona el 5% con predicción más alta.
+# 4. Revisa cuántos de esos registros tienen y_target = 1.
+# 5. Calcula la precisión dentro de ese grupo.

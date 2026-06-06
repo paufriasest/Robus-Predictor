@@ -51,21 +51,28 @@ def get_row_group_id(row, cuts_by_node):
 def predict_from_stable_cubes(
     X,
     stable_cubes,
+    red_zones,
     cuts,
+    use_default_value,
     default_value,
     verbose=False
 ):
     """
-    Genera predicciones usando los cubos estables encontrados durante fit().
-
+    Genera predicciones usando los cubos calculados durante fit().
+    
     La predicción se realiza así:
         1. Cada fila se envía por el árbol de cortes aprendido.
         2. Se obtiene el group_id final.
         3. Si el group_id está en stable_cubes, se usa su prediction_value.
-        4. Si no está, se usa default_value.
+        4. Si el group_id está en red_zones:
+            - si use_default_value=True, se usa default_value.
+            - si use_default_value=False, se usa prediction_value de la zona roja.
+        5. Si el group_id no existe ni en stable_cubes ni en red_zones,
+        se lanza error por inconsistencia interna.
         
-    - prediction_value representa el promedio de los promedios de la región estable entre dominios
-    - En predict(), ese valor se asigna a cada registro que cae en ese cubo.
+    Importante:
+        prediction_value representa el promedio de los promedios del cubo
+        entre los dominios de entrenamiento.
     Parámetros:
     -----------
     X : pd.DataFrame
@@ -97,9 +104,20 @@ def predict_from_stable_cubes(
 
     if stable_cubes is None:
         raise ValueError("stable_cubes no puede ser None.")
+    
+    if red_zones is None:
+        raise ValueError("red_zones no puede ser None.")
 
     if cuts is None:
         raise ValueError("cuts no puede ser None.")
+    
+    if not isinstance(use_default_value, bool):
+        raise TypeError("use_default_value debe ser booleano: True o False.")
+    
+    if use_default_value and default_value is None:
+        raise ValueError(
+            "default_value no puede ser None cuando use_default_value=True."
+        )
 
     # Indexar cortes por nodo para recorrer el árbol eficientemente
     cuts_by_node = {
@@ -112,9 +130,15 @@ def predict_from_stable_cubes(
         cube["group_id"]: cube
         for cube in stable_cubes
     }
+    
+    red_zones_by_group = {
+        cube["group_id"]: cube
+        for cube in red_zones
+    }
 
     predictions = []
     assigned_groups = []
+    predicted_cubes = {}
 
     if verbose:
         print("\n[Predict] Inicio de predicción")
@@ -133,6 +157,7 @@ def predict_from_stable_cubes(
         if group_id in stable_cubes_by_group:
             cube = stable_cubes_by_group[group_id]
             prediction = cube["prediction_value"]
+            cube_type = "estable"
 
             if verbose:
                 print(
@@ -142,21 +167,67 @@ def predict_from_stable_cubes(
                     f"zona estable | "
                     f"pred_asignada_registro={prediction}"
                 )
+        elif group_id in red_zones_by_group:
+            cube = red_zones_by_group[group_id]
+            cube_type = "zona_roja_default"
+            
+            if use_default_value:
+                prediction = default_value
+                
+                if verbose:
+                    print(
+                        f"[Predict] Fila {row_number} | "
+                        f"index={idx} | "
+                        f"grupo={group_id} | "
+                        f"zona roja | "
+                        f"default={default_value}"
+                    )
+                    
+            else:
+                prediction = cube["prediction_value"]
+                cube_type = "zona_roja_promedio"
 
+                if verbose:
+                    print(
+                        f"[Predict] Fila {row_number} | "
+                        f"index={idx} | "
+                        f"grupo={group_id} | "
+                        f"zona roja | "
+                        f"pred_zona_roja={prediction}"
+                    )
         else:
-            prediction = default_value
-
-            if verbose:
-                print(
-                    f"[Predict] Fila {row_number} | "
-                    f"index={idx} | "
-                    f"grupo={group_id} | "
-                    f"zona no estable | "
-                    f"default={default_value}"
-                )
-
+            raise ValueError(
+                f"Inconsistencia interna del modelo: el registro con índice {idx} "
+                f"cayó en el cubo '{group_id}', pero ese cubo no existe ni en "
+                "stable_cubes ni en red_zones. Esto puede ocurrir si se modificaron "
+                "manualmente los cortes, los cubos estables o las zonas rojas "
+                "después del entrenamiento."
+            )
+            
+        if group_id not in predicted_cubes:
+            predicted_cubes[group_id] = {
+                "group_id": group_id,
+                "tipo": cube_type,
+                "prediccion": prediction,
+                "cantidad_registros": 0
+            }
+        
+        predicted_cubes[group_id]["cantidad_registros"] += 1
         predictions.append(prediction)
-
+        
+    if verbose:
+        print("\n[Predict] Cubos utilizados en predicción:")
+        print(f"[Predict] Total registros predichos: {len(X)}")
+        print(f"[Predict] Total cubos utilizados: {len(predicted_cubes)}")
+        
+        for cube_info in predicted_cubes.values():
+            print(
+                f"- {cube_info['group_id']} | "
+                f"{cube_info['tipo']} | "
+                f"registros={cube_info['cantidad_registros']} | "
+                f"pred={cube_info['prediccion']}"
+            )
+    
     return pd.Series(predictions, index=X.index, name="pred")
 
 # Funcion que ocuparemos para guardar informacion respecto a los cubos que se les hace la predicción
