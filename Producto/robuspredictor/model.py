@@ -19,8 +19,7 @@ class RobusPredictor:
         std_max,
         use_default_value=True,
         default_value=0,
-        verbose=False,
-        random_state=None,
+        verbose=False
     ):
         """
         Inicializa el modelo RobusPredictor.
@@ -84,7 +83,7 @@ class RobusPredictor:
         self.use_default_value = use_default_value
         self.default_value = default_value
         self.verbose       = verbose
-        self.random_state  = random_state
+        self.random_state  = 67
 
         self.base_grid     = None
         self.cuts          = None

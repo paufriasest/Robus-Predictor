@@ -4,11 +4,22 @@
 ![NumPy](https://img.shields.io/badge/NumPy-1.24.4-013243?logo=numpy&logoColor=white)
 ![Pandas](https://img.shields.io/badge/Pandas-2.0.3-150458?logo=pandas&logoColor=white)
 ![Scikit-Learn](https://img.shields.io/badge/Scikit--Learn-1.3.2-F7931E?logo=scikitlearn&logoColor=white)
-![Version](https://img.shields.io/badge/Version-1.0.0-green)
+![Version](https://img.shields.io/badge/Version-1.1.1-green)
 ![Status](https://img.shields.io/badge/Status-Development-yellow)
 
 ## Descripción
-RobusPredictor, es una libreria en Ptyhon orientada al desarrollo de modelos predictivos, diseñada para identificar patrones consistentes en conjuntos de datos numéricos caracterizados por alta variabilidad, ruido y presencia de valores atípicos.
+RobusPredictor, es una librería experimental de predicción basada en particionamiento recursivo por medianas, construcción de regiones o cubos estables y evaluación de estabilidad entre dominios de entrenamiento.
+
+El modelo busca identificar patrones robustos en datasets con ruido, dividiendo los datos en regiones locales y validando si esas regiones mantienen un comportamiento consistente entre distintos dominios.
+
+## Funcionamiento general
+En la versión actual el modelo consta de cinco etapas principales:
+
+- División de dominios: El dataset de entrenamiento se divide en n dominios.
+- Particionamiento recursivo: En el dominio base, el modelo ordena los datos por una variable, divide por mediana y continúa recursivamente alternando las variables.
+- Aplicación de cortes: Los cortes aprendidos en el dominio base se aplican al resto de los dominios.
+- Evaluación de estabilidad: Cada cubo se evalúa según el promedio y desviación estándar del target en cada dominio.
+- Predicción: Una nueva observación recorre el árbol de cortes y cae en un cubo final. Si el cubo es estable, se usa su valor aprendido. Si cae en zona roja, se puede usar el valor por defecto o el valor promedio de la zona roja.
 
 ## Tecnologías
 
@@ -64,64 +75,71 @@ Robus-Predictor/
 ├── Gestión/
 │
 ├── Producto/
+│   └── example/
+│       ├── example_mockup.py
+│       ├── example_practical.py
+│       └── test_particion.py
+│
 │   └── robuspredictor/
 │       ├── __init__.py
+│       ├── checkpoint.py
+│       ├── domains.py
+│       ├── metrics.py
 │       ├── model.py
 │       ├── partitioning.py
-│       ├── stability.py
 │       ├── prediction.py
+│       ├── stability.py
 │       └── utils.py
-│ 
-│   └── example/
-│       └── example_basic.py
 │
 │    └──test/
 │       ├── Benchmark/
 │       ├── robus_predictor_010.py
 │       └── robus_predictor_020.py
 │
-├── Benchmark/
-│
+├── checkpoint_robuspredictor.xlsx
+├── README.md
 ├── requirements.txt
-├── setup.py
-└── README.md
+├── scoring_robuspredictor.xlsx
+└── setup.py
 
 ```
 ## Parámetros principales
 
-| Parámetro        | Descripción                                                           |
-| ---------------- | --------------------------------------------------------------------- |
-| n_min            | Cantidad mínima de elementos permitidos por cubo                      |
-| n_min            | Cantidad máxima de elementos permitidos por cubo                      |
-| n_dom            | Número de dominios temporales                                         |
-| mean_min         | Promedio mínimo permitido para cubos estables                         |
-| mean_max         | Promedio máximo permitido para cubos estables                         |
-| std_min          | Desviación máxima permitida entre dominios                            |
-| default_value    | Valor utilizado cuando un registro no pertenece a ningún cubo estable |
-| verbose          | Habilita mensajes de trazabilidad del algoritmo                       |
+| Parámetro           | Descripción                                                             |
+| ------------------- | ------------------------------------------------------------------------|
+| n_min               | Cantidad mínima de elementos permitidos por cubo                        |
+| n_max               | Cantidad máxima de elementos permitidos por cubo                        |
+| n_dom               | Número de dominios temporales                                           |
+| mean_min            | Promedio mínimo permitido para cubos estables                           |
+| mean_max            | Promedio máximo permitido para cubos estables                           |
+| std_min             | Desviación mínima permitida                                             |
+| std_max             | Desviación máxima permitida                                             |
+| use_default_value   | Booleano que define que hacer cuando la predicción cae en una zona roja |
+| default_value       | Valor utilizado cuando un registro no pertenece a ningún cubo estable   |
+| verbose             | Habilita mensajes de trazabilidad del algoritmo                         |
 
 ## Ejemplo de uso 
 ```
 import pandas as pd
 from robuspredictor import RobusPredictor
 
-# Dominio 1
-X1 = pd.DataFrame({
-    "var1": [10, 11, 12, 50, 51, 52],
-    "var2": [20, 21, 22, 80, 81, 82],
-    "var3": [30, 31, 32, 90, 91, 92],
-})
+ENTRENAMIENTO = pd.read_csv(../DATOS_ENTRENAMIENTO.csv)
+VALIDACION = pd.read_csv(../DATOS_VALIDACION.csv)
 
-y1 = pd.Series([1.5, 1.6, 1.55, 2.5, 2.6, 2.55])
+features = [
+    "var1", "var2", 
+]
+target = "var_target"
 
-# Dominio 2
-X2 = pd.DataFrame({
-    "var1": [10.5, 11.5, 12.5, 50.5, 51.5, 52.5],
-    "var2": [20.5, 21.5, 22.5, 80.5, 81.5, 82.5],
-    "var3": [30.5, 31.5, 32.5, 90.5, 91.5, 92.5],
-})
+# Variables entrenamiento del modelo
+X_train = ENTRENAMIENTO[features]
+y_train = ENTRENAMIENTO[target]
 
-y2 = pd.Series([1.55, 1.65, 1.60, 2.55, 2.65, 2.60])
+# Variables validación del modelo
+X_valid = VALIDACION[features]
+y_valid = VALIDACION[target]
+
+VAR_BINARIA_REAL= VALIDACION["var_binaria"]
 
 # Modelo
 modelo = RobusPredictor(
@@ -130,31 +148,50 @@ modelo = RobusPredictor(
     n_dom=2,
     mean_min=1.0,
     mean_max=3.0,
-    std_min=0.20,
+    std_min=0.0,
+    std_max=0.20,
+    use_default_value=0,
     default_value=0,
-    verbose=True,
+    verbose=True
 )
 
 # Entrenamiento
-modelo.fit(X1, y1, X2, y2)
+modelo.fit(X_train, y_train)
 
-# Datos de validación
-X_new = pd.DataFrame({
-    "var1": [11, 51, 100],
-    "var2": [21, 81, 100],
-    "var3": [31, 91, 100],
-})
 
 # Predicción
-predicciones = modelo.predict(X_new)
+predicciones = modelo.predict(X_valid)
 
 print(predicciones)
+
+# Export checkpoint datos entrenamiento
+modelo.export_checkpoint(
+    path="checkpoint_robuspredictor.xlsx",
+    file_format="xlsx",
+    X_valid=X_valid,
+    y_valid=y_valid,
+)
+
+# Export checkpoint datos validación
+modelo.export_prediction_checkpoint(
+    X=X_valid,
+    y=y_valid,
+    path="scoring_robuspredictor.xlsx",
+    dato_real=VAR_BINARIA_REAL,
+    file_format="xlsx"
+)
+
+# Función para obtner el mejor N% 
+resultado_top5 = modelo.best_percentage(
+    y_target=VAR_BINARIA_REAL,
+    top_pct=0.05
+)
 
 ```
 ## Versionamiento
 Versión actual: 
 ```
-v0.2.0
+v1.1.1
 ```
 
 ## Autores

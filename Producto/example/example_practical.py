@@ -35,8 +35,7 @@ modelo = RobusPredictor(
     std_max=  16.0,
     use_default_value=True, #por default viene true asique se puede no llamar
     default_value= 0, #por default viene en 0 asi que se puede no llamar
-    verbose=False,
-    random_state=  42, 
+    verbose=False
 )
 
 # ── Entrenamiento ─────────────────────────────────────────────────────────────
