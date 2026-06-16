@@ -1,10 +1,11 @@
 from .utils import validate_params, validate_predict_data, validate_fit_data
 from .partitioning import median_partition, apply_median_cuts
 from .stability import select_stable_cubes
-from .prediction import predict_from_stable_cubes
+from .prediction import predict_from_stable_cubes, predict_cubes_from_cuts
 from .domains import split_training_domains
-from .checkpoint import export_checkpoint, export_prediction_checkpoint
+from .checkpoint import export_checkpoint, build_and_export_prediction_checkpoint
 from .metrics import calculate_precision_top_percentage
+from pandas import DataFrame
 
 
 class RobusPredictor:
@@ -21,55 +22,21 @@ class RobusPredictor:
         default_value=0,
         verbose=False
     ):
-        """
-        Inicializa el modelo RobusPredictor.
+        """Inicializa el modelo RobusPredictor
 
-        Parametros:
-        -----------
-        n_min         : int   — Tamanio minimo de registros por cubo (condicion de parada
-                                del particionamiento). Controla la granularidad: valores
-                                bajos generan muchos cubos pequenios; valores altos generan
-                                pocos cubos grandes y mas estables.
-
-        n_max         : int   — Tamanio maximo de registros permitido en un cubo final.
-                                Si un cubo excede este valor se lanza un error. Sirve
-                                como control de calidad del particionamiento.
-
-        n_dom         : int   — Numero de dominios internos (minimo 2). El dataset de
-                                entrenamiento se divide en n_dom partes iguales. El
-                                dominio 1 construye el arbol de particion; los dominios
-                                2..N validan que los patrones sean consistentes. A mayor
-                                n_dom, mayor exigencia de estabilidad.
-
-        mean_min      : float — Promedio minimo aceptable del target dentro de un cubo
-                                estable. Cubos con promedio menor son marcados como zona
-                                roja. Define el piso del rango de interes de negocio.
-
-        mean_max      : float — Promedio maximo aceptable del target dentro de un cubo
-                                estable. Cubos con promedio mayor son marcados como zona
-                                roja. Define el techo del rango de interes de negocio.
-
-        std_min       : float — Desviacion estandar minima aceptable del target. En la
-                                mayoria de los casos se usa 0.0 (sin restriccion inferior).
-
-        std_max       : float — Desviacion estandar maxima aceptable del target. Controla
-                                la homogeneidad del cubo: valores bajos exigen que todos
-                                los registros del cubo tengan targets similares. Es el
-                                filtro de estabilidad mas importante.
-
-        default_value : float — Valor asignado en la prediccion a registros que caen en
-                                cubos inestables (zonas rojas) o que no pertenecen a
-                                ningun cubo estable. Por convencion se usa 0.
-
-        verbose       : bool  — Si True, imprime trazabilidad detallada del proceso de
-                                particionamiento, entrenamiento y prediccion.
-
-        random_state  : int o None — Semilla para el generador de numeros aleatorios usado
-                                en el tiebreaker del particionamiento. Con un entero fijo
-                                (ej. random_state=42) los resultados son identicos entre
-                                corridas, lo que permite trazabilidad y reproducibilidad.
-                                Con None (default) el tiebreaker es aleatorio en cada
-                                ejecucion.
+        Args:
+            n_min (int): Tamaño mínimo permitido para un cubo
+            n_max (int): Tamaño máximo  nimo permitido para un cubo
+            n_dom (int): Cantidad de dominios en que se dividirá el conjunto de entrenamiento. Debe ser mayor o igual a 2
+            mean_min (float): Valor mínimo permitido para el promedio del target dentro de un cubo
+            mean_max (float): Valor máximo permitido para el promedio del target dentro de un cubo
+            std_min (float): Valor mínimo permitido para la desviación estándar del target dentro de un cubo
+            std_max (float): Valor máximo permitido para la desviación estándar del target dentro de un cubo
+            use_default_value (bool, optional): Define cómo se comporta el modelo cuando una observación cae en una zona roja durante la predicción. Defaults to True
+                - Si es True, la predicción será default_value
+                - Si es False, la predicción será el prediction_value calculado para esa zona roja
+            default_value (float, optional): Valor utilizado como predicción cuando una observación cae en una zona roja. Defaults to 0
+            verbose (bool, optional): Si es True, muestra información adicional durante el entrenamiento y la predicción. Defaults to False
         """
         validate_params(n_min, n_max, n_dom, mean_min, mean_max, std_min, std_max, use_default_value, default_value)
 
@@ -94,8 +61,23 @@ class RobusPredictor:
         self.is_fitted     = False
         self.checkpoint    = None
         self.last_predictions = None
+        self.last_prediction_X = None
+        self.cube_id_map = None
 
     def fit(self, x, y):
+        """Funcion para entrenar el modelo
+
+        Args:
+            x (Dataframe): Variables de entrenamiento 
+            y (Dataframe): Variable objetiva de entrenamiento
+
+        Raises:
+            ValueError: Se necesitan al menos 2 dominios
+            TypeError: La particion debe contener grupos y cortes
+
+        Returns:
+            _type_: _description_
+        """
         validate_fit_data(x, y, self.n_dom)
 
         self.feature_names = list(x.columns)
@@ -156,6 +138,17 @@ class RobusPredictor:
             std_max=self.std_max,
             verbose=self.verbose,
         )
+        
+        all_cubes = self.stable_cubes + self.red_zones
+
+        sorted_group_ids = sorted(
+            set(cube["group_id"] for cube in all_cubes)
+        )
+
+        self.cube_id_map = {
+            group_id: f"CUBE_{i:03d}"
+            for i, group_id in enumerate(sorted_group_ids, start=1)
+        }
 
         if self.verbose:
             print(f"\n[Fit] Cubos estables finales: {len(self.stable_cubes)}")
@@ -164,7 +157,19 @@ class RobusPredictor:
         self.is_fitted = True
         return self
 
-    def predict(self, x):
+    def predict(self, x: DataFrame):
+        """Función para generar predicciones para nuevos datos usando el modelo entrenado
+
+        Args:
+            x (pd.Dataframe): Datos de validación o nuevos datos a predecir
+
+        Raises:
+            ValueError: El modelo debe haber sido entrenado
+            ValueError: Error en la cantidad de columnas de los datos de validación
+
+        Returns:
+            pd.Series: Series con todas las predicciones generadas por cada dato.
+        """
         if not self.is_fitted:
             raise ValueError("El modelo debe entrenarse con fit() antes de predecir.")
 
@@ -174,8 +179,10 @@ class RobusPredictor:
         if missing:
             raise ValueError(f"Faltan columnas en X para predecir: {missing}")
 
+        X_predict = x[self.feature_names].copy()
+        
         predictions = predict_from_stable_cubes(
-            X=x[self.feature_names],
+            X=X_predict,
             stable_cubes=self.stable_cubes,
             red_zones=self.red_zones,
             cuts=self.cuts,
@@ -184,85 +191,125 @@ class RobusPredictor:
             verbose=self.verbose,
         )
         
+        self.last_prediction_X = X_predict
         self.last_predictions = predictions
         
         return predictions
 
-    def export_checkpoint(self, path, file_format="xlsx", X_valid=None, y_valid=None):
-        """
-        Exporta el checkpoint de trazabilidad a Excel o CSV.
+    def export_checkpoint(
+        self,
+        X_valid,
+        y_valid,
+        file_name="checkpoint_robuspredictor",
+        file_format="xlsx",
+    ):
+        """Exporta el checkpoint de trazabilidad a Excel o CSV
 
-        Parametros:
-        -----------
-        path        : str          — ruta de salida ('checkpoint.xlsx' o 'checkpoint.csv')
-        file_format : str          — 'xlsx' o 'csv'
-        X_valid     : pd.DataFrame — dataset de validacion (features). Opcional.
-                    Si se provee, se aplican los cortes aprendidos para asignar
-                    cada registro de validacion al cubo correspondiente. Se agregan
-                    al checkpoint las columnas n_validacion, prom_target_validacion,
-                    std_target_validacion y prom_target_consolidado.
-        y_valid     : pd.Series    — target real del dataset de validacion.
-                    Requerido si se provee X_valid.
+        Args:
+            X_valid (pd.DataFrame): Dataset de validación. Si se entrega, se aplican los cortes aprendidos para asignar cada registro de validación al cubo correspondiente
+            y_valid (pd.Series): Target real del dataset de validación. Se utiliza solo para trazabilidad. Requerido si se entrega X_valid
+            file_name (str, optional): Nombre base del archivo de salida. Defaults to "checkpoint_robuspredictor"
+            file_format (str, optional): Formato de salida. Valores permitidos: "xlsx" o "csv". Defaults to "xlsx"
+
+        Raises:
+        ValueError: Si el modelo no ha sido entrenado previamente
+        ValueError: Si faltan columnas en X_valid
+        ValueError: Si X_valid e y_valid no tienen la misma cantidad de registros
+        ValueError: Si X_valid e y_valid no tienen el mismo índice
+
+        Returns:
+            dict[str, pd.DataFrame]: Diccionario con los DataFrames generados para el checkpoint
         """
+
         if not self.is_fitted:
             raise ValueError("El modelo debe entrenarse con fit() antes de exportar checkpoint.")
 
-        validacion_groups = None
-        y_validacion      = None
+        validate_predict_data(X_valid)
 
-        if X_valid is not None and y_valid is not None:
-            if self.verbose:
-                print("[Checkpoint] Aplicando cortes a datos de validacion...")
+        missing = set(self.feature_names) - set(X_valid.columns)
+        if missing:
+            raise ValueError(f"Faltan columnas en X_valid para aplicar cortes: {missing}")
 
-            validacion_groups = apply_median_cuts(
-                x=X_valid[self.feature_names], cuts=self.cuts, verbose=False
-            )
-            y_validacion = y_valid
+        if len(X_valid) != len(y_valid):
+            raise ValueError("X_valid e y_valid deben tener la misma cantidad de registros.")
 
-            if self.verbose:
-                print(f"[Checkpoint] Grupos de validacion generados: {len(validacion_groups)}")
+        if not X_valid.index.equals(y_valid.index):
+            raise ValueError("X_valid e y_valid deben tener el mismo índice.")
+
+        if self.verbose:
+            print("[Checkpoint] Aplicando cortes a datos de validación...")
+
+        validacion_groups = apply_median_cuts(
+            x=X_valid[self.feature_names].copy(),
+            cuts=self.cuts,
+            verbose=False
+        )
+
+        if self.verbose:
+            print(f"[Checkpoint] Grupos de validación generados: {len(validacion_groups)}")
 
         self.checkpoint = export_checkpoint(
-            path=path,
             domains=self.domains,
             stable_cubes=self.stable_cubes,
             red_zones=self.red_zones,
             cuts=self.cuts,
             feature_names=self.feature_names,
+            file_name=file_name,
             file_format=file_format,
             validacion_groups=validacion_groups,
-            y_validacion=y_validacion,
+            y_validacion=y_valid,
         )
-
-        if self.verbose:
-            print(f"[Checkpoint] Exportado correctamente en: {path}")
 
         return self.checkpoint
     
     def export_prediction_checkpoint(
         self,
-        X,
-        y=None,
-        path="scoring_robuspredictor.xlsx",
+        X_valid,
+        y_valid,
+        file_name="scoring_robuspredictor",
         dato_real=None,
         file_format="xlsx"
-        ):
+    ):
+        """Exporta el checkpoint de predicciones a un archivo Excel o CSV
+
+        Args:
+            X_valid (pd.DataFrame): Dataset de validación o datos a predecir. Debe contener las mismas columnas utilizadas durante el entrenamiento
+            y_valid (pd.Series): Data target de validacion asociado a X_valid
+            file_name (str, optional): Nombre base del archivo de salida. Defaults to "scoring_robuspredictor"
+            dato_real (pd.Series, optional): Variable real adicional utilizada para evaluación o comparación. No se usa para entrenar ni para predecir. Defaults to None
+            file_format (str, optional): Formato de salida del archivo. Valores permitidos: "xlsx" o "csv". Defaults to "xlsx"
+
+        Raises:
+        ValueError: Si el modelo no ha sido entrenado previamente
+        ValueError: Si faltan columnas en X_valid
+        ValueError: Si X_valid e y_valid no tienen la misma cantidad de registros
+        ValueError: Si X_valid e y_valid no tienen el mismo índice
+
+        Returns:
+            pd.DataFrame: DataFrame con el detalle de predicción por registro. Este mismo contenido es exportado al archivo generado
+        """
+        
         if not self.is_fitted:
             raise ValueError("El modelo debe entrenarse con fit() antes de exportar predicciones.")
+
+        validate_predict_data(X_valid)
         
-        validate_predict_data(X)
+        missing = set(self.feature_names) - set(X_valid.columns)
+        if missing:
+            raise ValueError(f"Faltan columnas en X_valid para predecir: {missing}")
         
-        missing_columns = set(self.feature_names) - set(X.columns)
+        X_export = X_valid[self.feature_names].copy()
         
-        if missing_columns:
-            raise ValueError(f"Faltan columnas en X para predecir: {missing_columns}")
+        if len(X_export) != len(y_valid):
+            raise ValueError("X_valid e y_valid deben tener la misma cantidad de registros.")
         
-        X = X[self.feature_names].copy()
+        if not X_export.index.equals(y_valid.index):
+            raise ValueError("X_valid e y_valid deben tener el mismo índice.")
         
-        prediction_checkpoint = export_prediction_checkpoint(
-            X=X,
-            y=y,
-            path=path,
+        prediction_checkpoint = build_and_export_prediction_checkpoint(
+            X=X_export,
+            y=y_valid,
+            file_name=file_name,
             dato_real=dato_real,
             stable_cubes=self.stable_cubes,
             red_zones=self.red_zones,
@@ -273,30 +320,20 @@ class RobusPredictor:
         )
         
         return prediction_checkpoint
-    
-    
+
     def best_percentage(self, y_target, top_pct=0.05):
-        """
-        Calcula la precisión del modelo en el Top N% de predicciones más altas.
-        
-        Parámetros:
-        -----------
-        X : pd.DataFrame
-            Datos a predecir.
-        
-        y_target : pd.Series
-            Variable real binaria. Ejemplo: ARRIENDO, con valores 0 o 1.
-        
-        top_pct : float
-            Porcentaje superior a evaluar.
-            Ejemplo:
-                0.05 = Top 5%
-                0.10 = Top 10%
-                0.20 = Top 20%
-        Retorna:
-        --------
-        dict
-            Métricas del top porcentaje.
+        """Calcula la precisión del modelo dentro del Top N% de las últimas predicciones generadas.
+
+        Args:
+            y_target (pd.Series): Variable real contra la cual se evalúa la precisión del Top N%. Debe tener el mismo índice y la misma cantidad de registros que las últimas predicciones generadas por predict()
+            top_pct (float, optional):  Porcentaje superior de predicciones a evaluar, expresado como fracción entre 0 y 1. Defaults to 0.05
+
+        Raises:
+            ValueError: Si el modelo no ha sido entrenado antes de ejecutar el método.
+            ValueError: Si el modelo no ha sido entregado predicciones antes de ejecutar el método.
+
+        Returns:
+            float: Precisión obtenida dentro del Top N% de predicciones más altas.
         """
         if not self.is_fitted:
             raise ValueError("El modelo debe entrenarse con fit() antes de calcular métricas.")
@@ -314,3 +351,37 @@ class RobusPredictor:
         )
         
         return result["precision"]
+
+    def predict_cubes(self, x: DataFrame):
+        """Asigna cada registro al cubo correspondiente del modelo.
+
+        Args:
+            x (pd.DataFrame): Datos a asignar a cubos. Debe contener las mismas columnas utilizadas durante el entrenamiento
+
+        Raises:
+            ValueError: Si el modelo no ha sido entrenado previamente
+            ValueError: Si faltan columnas requeridas para aplicar los cortes
+
+        Returns:
+            pd.Series: Serie de pandas con el ID público del cubo asignado a cada fila. Mantiene el mismo índice de x y tiene nombre "cube_id"
+        """
+        if not self.is_fitted:
+            raise ValueError("El modelo debe entrenarse con fit() antes de asignar cubos.")
+
+        validate_predict_data(x)
+
+        missing = set(self.feature_names) - set(x.columns)
+        if missing:
+            raise ValueError(f"Faltan columnas en X para asignar cubos: {missing}")
+
+        X_predict = x[self.feature_names].copy()
+
+        cube_ids = predict_cubes_from_cuts(
+            X=X_predict,
+            stable_cubes=self.stable_cubes,
+            red_zones=self.red_zones,
+            cuts=self.cuts,
+            cube_id_map=self.cube_id_map
+        )
+
+        return cube_ids

@@ -1,7 +1,35 @@
 import json
 import pandas as pd
 from .prediction import build_prediction_detail
+from pathlib import Path
 
+def build_export_file_path(file_name, file_format, default_name):
+    """Construye la ruta final del archivo de exportación.
+
+    Args:
+        file_name (str): Nombre del archivo
+        file_format (str): Tipo extensión del archivo 'xlsx' o 'csv'
+        default_name (_type_): Nombre por default que tendrá la extensión
+
+    Raises:
+        ValueError:  Si file_format no es "xlsx" ni "csv"
+
+    Returns:
+        pathlib.Path: Ruta final del archivo con la extensión correspondiente.
+    """
+
+    if file_format not in ["xlsx", "csv"]:
+        raise ValueError("file_format debe ser 'xlsx' o 'csv'.")
+
+    if file_name is None:
+        file_name = default_name
+
+    file_path = Path(file_name)
+
+    # Si el usuario escribe una extensión, se reemplaza por file_format.
+    file_path = file_path.with_suffix(f".{file_format}")
+
+    return file_path
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -252,35 +280,43 @@ def build_summary_checkpoint(stable_cubes, red_zones, cuts, domains):
 
 
 # ─── Export ──────────────────────────────────────────────────────────────────
-
 def export_checkpoint(
-    path,
     domains,
     stable_cubes,
     red_zones,
     cuts,
     feature_names,
+    file_name="checkpoint_robuspredictor",
     file_format="xlsx",
     validacion_groups=None,
     y_validacion=None,
 ):
-    """
-    Exporta el checkpoint de trazabilidad a Excel o CSV.
+    """Exporta el checkpoint de trazabilidad a Excel o CSV.
 
-    Parametros:
-    -----------
-    path               : str                  — ruta de salida
-    domains            : list[dict]           — dominios de entrenamiento
-    stable_cubes       : list[dict]           — cubos estables
-    red_zones          : list[dict]           — zonas rojas
-    cuts               : list[dict]           — cortes aprendidos
-    feature_names      : list[str]            — variables predictoras
-    file_format        : str                  — 'xlsx' o 'csv'
-    validacion_groups  : dict[str, DataFrame] — grupos del dataset de validacion,
-                         generados con apply_median_cuts(X_valid, cuts). Opcional.
-    y_validacion       : pd.Series            — target real del dataset de validacion.
-                         Requerido si se provee validacion_groups.
+    Args:
+        domains (list[dict]): Dominios de entrenamiento generados por el modelo.
+        stable_cubes (list[dict]): Cubos considerados estables.
+        red_zones (list[dict]): Cubos no estables o zonas rojas.
+        cuts (list[dict]): Cortes aprendidos durante el entrenamiento.
+        feature_names (list[str]): Nombres de las variables predictoras utilizadas por el modelo.
+        file_name (str, optional): Nombre base del archivo de salida. No es necesario indicar extensión. Defaults to "checkpoint_robuspredictor".
+        file_format (str, optional): Formato de salida. Valores permitidos: "xlsx" o "csv". Defaults to "xlsx".
+        validacion_groups (dict[str, pd.DataFrame], optional): Grupos del dataset de validación generados con los cortes del modelo. Defaults to None.
+        y_validacion (pd.Series, optional): Target real del dataset de validación. Defaults to None.
+
+    Raises:
+        ValueError: Si file_format no es "xlsx" ni "csv".
+
+    Returns:
+        dict[str, pd.DataFrame]: Diccionario con los DataFrames generados para el checkpoint.
     """
+
+    export_path = build_export_file_path(
+        file_name=file_name,
+        file_format=file_format,
+        default_name="checkpoint_robuspredictor"
+    )
+
     cubes_df = build_cubes_checkpoint(
         domains=domains,
         stable_cubes=stable_cubes,
@@ -289,7 +325,9 @@ def export_checkpoint(
         validacion_groups=validacion_groups,
         y_validacion=y_validacion,
     )
-    cuts_df    = build_cuts_checkpoint(cuts)
+
+    cuts_df = build_cuts_checkpoint(cuts)
+
     summary_df = build_summary_checkpoint(
         stable_cubes=stable_cubes,
         red_zones=red_zones,
@@ -297,74 +335,105 @@ def export_checkpoint(
         domains=domains,
     )
 
+    checkpoint = {
+        "cubes_checkpoint": cubes_df,
+        "cuts_checkpoint": cuts_df,
+        "summary": summary_df,
+    }
+
     if file_format == "xlsx":
-        with pd.ExcelWriter(path, engine="openpyxl") as writer:
-            cubes_df.to_excel(  writer, sheet_name="cubes_checkpoint", index=False)
-            cuts_df.to_excel(   writer, sheet_name="cuts_checkpoint",  index=False)
-            summary_df.to_excel(writer, sheet_name="summary",          index=False)
+        with pd.ExcelWriter(export_path, engine="openpyxl") as writer:
+            for sheet_name, df in checkpoint.items():
+                df.to_excel(
+                    writer,
+                    sheet_name=sheet_name,
+                    index=False
+                )
+
     elif file_format == "csv":
-        cubes_df.to_csv(path, index=False, sep=",")
+        base_path = export_path.with_suffix("")
+
+        for i, (sheet_name, df) in enumerate(checkpoint.items(), start=1):
+            csv_path = base_path.parent / f"{base_path.name}_{i}_{sheet_name}.csv"
+
+            df.to_csv(
+                csv_path,
+                index=False,
+                sep=",",
+                encoding="utf-8-sig"
+            )
+
     else:
         raise ValueError("file_format debe ser 'xlsx' o 'csv'.")
 
-    return {
-        "cubes_checkpoint": cubes_df,
-        "cuts_checkpoint":  cuts_df,
-        "summary":          summary_df,
-    }
+    return checkpoint
 
-# funcion para exportar el segudo excel con info de la prediccion
-def export_prediction_checkpoint(
+def build_and_export_prediction_checkpoint(
     X,
-    y,
-    path,
-    dato_real,
-    stable_cubes,
-    red_zones,
-    cuts,
-    default_value,
-    feature_names,
+    y=None,
+    file_name="scoring_robuspredictor",
+    dato_real=None,
+    stable_cubes=None,
+    red_zones=None,
+    cuts=None,
+    default_value=0,
+    feature_names=None,
     file_format="xlsx"
 ):
+    """ Exporta un checkpoint de predicción a nivel de registro
+
+    Args:
+        X (pd.DataFrame): Dataset de validación o datos a predecir
+        y (pd.Series | pd.DataFrame | None):Target real asociado a X. Se utiliza solo para trazabilidad. Puede ser None
+        file_name (str): Nombre base del archivo de salida.
+        dato_real (pd.Series | pd.DataFrame | None): Variable real adicional utilizada para evaluación. Puede ser None
+        stable_cubes (list[dict]): Cubos estables generados por el modelo
+        red_zones (list[dict]): Zonas rojas generadas por el modelo
+        cuts (list[dict]): Cortes aprendidos por el modelo
+        default_value (float): Valor por defecto utilizado en zonas rojas
+        feature_names (list[str]): Variables predictoras utilizadas durante el entrenamiento
+        file_format (str, optional): Formato de salida. Valores permitidos: "xlsx" o "csv". Defaults to "xlsx"
+
+    Raises:
+        TypeError: Si X no es un DataFrame de pandas
+        ValueError: Si y o dato_real no tienen el mismo índice que X
+        ValueError: Si file_format no es "xlsx" ni "csv"
+
+    Returns:
+        pd.DataFrame: DataFrame con el detalle de predicción por registro
     """
-    Exporta un checkpoint de predicción a nivel de registro.
-    columnas:
-    - variables og recibidas
-    - target, si fue entregado
-    - id_cubo
-    - estable
-    - promedio_cubo
-    - prediccion_aplicada
-    - motivo_rechazo
-    """
-    
-    
+
+    export_path = build_export_file_path(
+        file_name=file_name,
+        file_format=file_format,
+        default_name="scoring_robuspredictor"
+    )
+
     if not isinstance(X, pd.DataFrame):
         raise TypeError("X debe ser un DataFrame de pandas.")
-    
+
     X_export = X[feature_names].copy()
-    
+
     if y is not None:
         if isinstance(y, pd.DataFrame):
             if y.shape[1] != 1:
                 raise ValueError("y debe ser una Series o un DataFrame de una sola columna.")
-            
             y_export = y.iloc[:, 0]
-            
+
         elif isinstance(y, pd.Series):
             y_export = y
-        
+
         else:
             raise TypeError("y debe ser None, Series o DataFrame.")
-        
+
         if len(X_export) != len(y_export):
             raise ValueError("X e y deben tener la misma cantidad de filas.")
-        
+
         if not X_export.index.equals(y_export.index):
             raise ValueError("X e y deben tener el mismo índice.")
-        
+
         X_export["target"] = y_export
-    
+
     detail_df = build_prediction_detail(
         X=X_export[feature_names],
         stable_cubes=stable_cubes,
@@ -372,59 +441,62 @@ def export_prediction_checkpoint(
         cuts=cuts,
         default_value=default_value
     )
-    
-    prediction_checkpoint = X_export.join(detail_df) 
-    
-    # nueva columna para saber si hay arriendo de acuerdo a superar el umbral de 1.5
+
+    prediction_checkpoint = X_export.join(detail_df)
+
     prediction_checkpoint["arriendo_segun_predict"] = (
         prediction_checkpoint["prediccion_aplicada"] > 1.5
     ).astype(int)
-    
+
     if dato_real is not None:
         if isinstance(dato_real, pd.DataFrame):
             if dato_real.shape[1] != 1:
                 raise ValueError(
                     "dato_real debe ser una Series o un DataFrame de una sola columna."
                 )
-            
             dato_real = dato_real.iloc[:, 0]
-        
+
         elif not isinstance(dato_real, pd.Series):
             raise TypeError("dato_real debe ser None, Series o DataFrame.")
-        
+
         if len(prediction_checkpoint) != len(dato_real):
             raise ValueError(
                 "prediction_checkpoint y dato_real deben tener la misma cantidad de filas."
             )
-        
+
         if not prediction_checkpoint.index.equals(dato_real.index):
             raise ValueError(
                 "prediction_checkpoint y dato_real deben tener el mismo índice."
             )
-        
-    prediction_checkpoint["ARRIENDO_REAL"] = dato_real.astype(int)
-    
-    # si el modelo y el dato real dan 1 marcará como acierto real de otra forma no
-    prediction_checkpoint["acierto_del_modelo_de_acuerdo_arriendo_predict"] = (
-        (prediction_checkpoint["arriendo_segun_predict"] == 1)
-        & (prediction_checkpoint["ARRIENDO_REAL"] == 1)
-    ).astype(int)
-    
+
+        prediction_checkpoint["ARRIENDO_REAL"] = dato_real.astype(int)
+
+        prediction_checkpoint["acierto_del_modelo_de_acuerdo_arriendo_predict"] = (
+            (prediction_checkpoint["arriendo_segun_predict"] == 1)
+            & (prediction_checkpoint["ARRIENDO_REAL"] == 1)
+        ).astype(int)
+
     prediction_checkpoint.index = range(1, len(prediction_checkpoint) + 1)
-    
+
     if file_format == "xlsx":
-            with pd.ExcelWriter(path, engine="openpyxl") as writer:
-                prediction_checkpoint.to_excel(
-                    writer,
-                    sheet_name="predicciones_checkpoint",
-                    index=True,
-                    index_label="id_registro"
-                )
-    
+        with pd.ExcelWriter(export_path, engine="openpyxl") as writer:
+            prediction_checkpoint.to_excel(
+                writer,
+                sheet_name="predicciones_checkpoint",
+                index=True,
+                index_label="id_registro"
+            )
+
     elif file_format == "csv":
-        prediction_checkpoint.to_csv(path, index=True, sep=",")
-    
+        prediction_checkpoint.to_csv(
+            export_path,
+            index=True,
+            index_label="id_registro",
+            sep=",",
+            encoding="utf-8-sig"
+        )
+
     else:
         raise ValueError("file_format debe ser 'xlsx' o 'csv'.")
-    
+
     return prediction_checkpoint

@@ -47,6 +47,77 @@ def get_row_group_id(row, cuts_by_node):
 
     return node_id
 
+def predict_cubes_from_cuts(
+    X,
+    stable_cubes,
+    red_zones,
+    cuts,
+    cube_id_map
+):
+    """Asigna cada fila de X al cubo correspondiente usando los cortes aprendidos.
+
+    Args:
+        X (pd.DataFrame): Datos a asignar a cubos
+        stable_cubes (list[dict]): Cubos estables generados durante fit()
+        red_zones (list[dict]): Zonas rojas generadas durante fit()
+        cuts (list[dict]): Cortes aprendidos durante fit()
+        cube_id_map (dict): Diccionario que mapea el group_id interno a un ID público.
+
+    Returns:
+        pd.Series: Serie con el ID público del cubo asignado a cada fila
+    """
+
+    if not isinstance(X, pd.DataFrame):
+        raise TypeError("X debe ser un pandas DataFrame.")
+
+    if stable_cubes is None:
+        raise ValueError("stable_cubes no puede ser None.")
+
+    if red_zones is None:
+        raise ValueError("red_zones no puede ser None.")
+
+    if cuts is None:
+        raise ValueError("cuts no puede ser None.")
+
+    if cube_id_map is None:
+        raise ValueError("cube_id_map no puede ser None.")
+
+    cuts_by_node = {
+        cut["node_id"]: cut
+        for cut in cuts
+    }
+
+    valid_group_ids = {
+        cube["group_id"]
+        for cube in stable_cubes
+    } | {
+        cube["group_id"]
+        for cube in red_zones
+    }
+
+    cube_ids = []
+
+    for idx, row in X.iterrows():
+        group_id = get_row_group_id(
+            row=row,
+            cuts_by_node=cuts_by_node
+        )
+
+        if group_id not in cube_id_map:
+            raise ValueError(
+                f"El cubo interno '{group_id}' no tiene un ID público asignado. "
+                "Esto puede ocurrir si cube_id_map no fue generado después del fit(). "
+                "Vuelve a entrenar el modelo con modelo.fit(X_train, y_train)."
+            )
+
+        cube_ids.append(cube_id_map[group_id])
+
+    return pd.Series(
+        cube_ids,
+        index=X.index,
+        name="cube_id"
+    )
+
 
 def predict_from_stable_cubes(
     X,

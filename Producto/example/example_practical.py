@@ -1,16 +1,8 @@
-from pathlib import Path
-import sys
 import pandas as pd
 from robuspredictor import RobusPredictor
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT_DIR / "Producto"))
-
-TRAINING_PATH = ROOT_DIR / "NoSeSube" / "Data" / "ENTRENAMIENTO2.csv"
-VALIDATION_PATH = ROOT_DIR / "NoSeSube" / "Data" / "VALIDACION2.csv"
-
-ENTRENAMIENTO = pd.read_csv(TRAINING_PATH)
-VALIDACION = pd.read_csv(VALIDATION_PATH)
+ENTRENAMIENTO = pd.read_csv("NoSeSube/Data/ENTRENAMIENTO2.csv")
+VALIDACION = pd.read_csv("NoSeSube/Data/VALIDACION2.csv")
 
 features = [
     "var1", "var2", 
@@ -65,29 +57,40 @@ print("\nPredicciones:")
 print(resultado)
 
 # ── Exportar checkpoint ───────────────────────────────────────────────────────
-# Se pasan X_valid e y_valid para que el checkpoint incluya las columnas
-# n_validacion, prom_target_validacion, std_target_validacion y
-# prom_target_consolidado. Si no se pasan, esas columnas apareceran como null.
+
+# Para xlsx se exportara con nombre checkpoint_robuspredictor.xlsx
 modelo.export_checkpoint(
-    path="checkpoint_robuspredictor.xlsx",
-    file_format="xlsx",
+    X_valid=X_valid,
+    y_valid=y_valid
+)
+
+# Para formato csv se exportara con nombre checkpoint_numeroHoja_nombreHojaCalculo_robuspredictor.csv
+modelo.export_checkpoint(
     X_valid=X_valid,
     y_valid=y_valid,
+    file_format="csv"
 )
 
-# Exportar el excel que sirve para la trazabilidad de las predicciones efectuadas, ocupa los mismos parametros que el excel anterior
-modelo.export_prediction_checkpoint(
-    X=X_valid,
-    y=y_valid,
-    path="scoring_robuspredictor.xlsx",
+
+# Exportar el excel que sirve para la trazabilidad de las predicciones efectuadas, se le puede agregar el dato real que es nuestra var de comparacion
+scoring_df = modelo.export_prediction_checkpoint(
+    X_valid=X_valid,
+    y_valid=y_valid,
+    dato_real=ARRIENDO_REAL
+)
+
+# Formato para csv cambiando el nombre a mi_prediccion.csv
+scoring_df2 = modelo.export_prediction_checkpoint(
+    X_valid=X_valid,
+    y_valid=y_valid,
+    file_name="mi_prediccion",
     dato_real=ARRIENDO_REAL,
-    file_format="xlsx"
+    file_format="csv"
 )
 
-# NUEVA FUNCION OMAIGAAA: Mejor N% 
-# Recibe:
-#       y_target que es la variable target que nos interesa calcular su porcentaje del mejor N %
-#       top_pct: porcentaje que se debe ingresar de forma decimal entre 0 y 1
+# ── Funciones Utiles ───────────────────────────────────────────────────────
+
+# Funcion Mejor N% 
 resultado_top5 = modelo.best_percentage(
     y_target=ARRIENDO_REAL,
     top_pct=0.05
@@ -105,3 +108,11 @@ print(f"Scoring Top 5%: {resultado_top5:.2%}")
 # 3. Selecciona el 5% con predicción más alta.
 # 4. Revisa cuántos de esos registros tienen y_target = 1.
 # 5. Calcula la precisión dentro de ese grupo.
+
+# Nueva funcion OMAIGA: predict_cubes que permite agregar una nueva columna indicando a que cubo corresponde el valor 
+cube_ids = modelo.predict_cubes(X_valid)
+
+resultado = X_valid.copy()
+resultado["cube_id"] = cube_ids
+
+print(resultado)
