@@ -109,10 +109,19 @@ print(f"Scoring Top 5%: {resultado_top5:.2%}")
 # 4. Revisa cuántos de esos registros tienen y_target = 1.
 # 5. Calcula la precisión dentro de ese grupo.
 
-# Nueva funcion OMAIGA: predict_cubes que permite agregar una nueva columna indicando a que cubo corresponde el valor 
+# Funcion predict_cubes, que permite agregar una nueva columna indicando a que cubo corresponde el valor 
 cube_ids = modelo.predict_cubes(X_valid)
 
 resultado = X_valid.copy()
 resultado["cube_id"] = cube_ids
 
 print(resultado)
+
+# NUEVA FUNCION OMAIGA: Retorna un dataframe que el usuario puede utilizar para trazabilidad contiene:
+# - ID del cubo que es legible
+# - <variable>_min que es el valor menor que tomó el cubo para esa variable
+# - <variable>_max que es el valor mayor que tomó el cubo para esa variable
+# - Pred prediccion efectuada a ese cubo en particular
+
+MODELO_ENTRENADO_RP = modelo.export_dataframe_cubes()
+print(MODELO_ENTRENADO_RP.head())

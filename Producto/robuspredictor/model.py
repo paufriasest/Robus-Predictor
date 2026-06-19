@@ -62,6 +62,7 @@ class RobusPredictor:
         self.checkpoint    = None
         self.last_predictions = None
         self.last_prediction_X = None
+        self.last_prediction_cubes = None
         self.cube_id_map = None
 
     def fit(self, x, y):
@@ -193,6 +194,7 @@ class RobusPredictor:
         
         self.last_prediction_X = X_predict
         self.last_predictions = predictions
+        self.last_prediction_cubes = None
         
         return predictions
 
@@ -383,5 +385,72 @@ class RobusPredictor:
             cuts=self.cuts,
             cube_id_map=self.cube_id_map
         )
+        
+        self.last_prediction_cubes = cube_ids
 
         return cube_ids
+
+    def export_dataframe_cubes(self):
+        """Retorna un DataFrame resumen de los cubos utilizados en la última predicción
+        
+        Raises:
+            ValueError: Si el modelo no ha sido entrenado previamente
+            ValueError: Si el modelo no ha sido entregado predicciones antes de ejecutar el método
+            ValueError: Si existe inconsistencia entre los índices internos guardados
+        
+        Returns:
+            pd.DataFrame: Dataframe con informacionn respecto ID del cubo, valores minimos y maximos de cada variables y la prediccion corespondiente al cubo
+        """
+        if not self.is_fitted:
+            raise ValueError(
+                "El modelo debe entrenarse con fit() antes de generar el DataFrame de cubos."
+            )
+
+        if self.last_prediction_X is None or self.last_predictions is None:
+            raise ValueError(
+                "No existen predicciones previas. "
+                "Debe ejecutar modelo.predict(x) antes de consultar export_dataframe_cubes."
+            )
+
+        if self.last_prediction_cubes is None:
+            self.last_prediction_cubes = self.predict_cubes(self.last_prediction_X)
+
+        if not self.last_prediction_X.index.equals(self.last_predictions.index):
+            raise ValueError(
+                "Inconsistencia interna: last_prediction_X y last_predictions "
+                "no tienen el mismo índice."
+            )
+
+        if not self.last_prediction_X.index.equals(self.last_prediction_cubes.index):
+            raise ValueError(
+                "Inconsistencia interna: last_prediction_X y last_prediction_cubes "
+                "no tienen el mismo índice."
+            )
+
+        df = self.last_prediction_X.copy()
+        df["_cube_id"] = self.last_prediction_cubes
+        df["_pred"] = self.last_predictions
+
+        rows = []
+
+        for cube_id, group in df.groupby("_cube_id", sort=True):
+            row = {
+                "ID": cube_id
+            }
+
+            for feature in self.feature_names:
+                row[f"{feature}_min"] = group[feature].min()
+                row[f"{feature}_max"] = group[feature].max()
+
+            unique_predictions = group["_pred"].dropna().unique()
+
+            if len(unique_predictions) == 0:
+                row["Pred"] = None
+            elif len(unique_predictions) == 1:
+                row["Pred"] = unique_predictions[0]
+            else:
+                row["Pred"] = unique_predictions[0]
+
+            rows.append(row)
+
+        return DataFrame(rows)
