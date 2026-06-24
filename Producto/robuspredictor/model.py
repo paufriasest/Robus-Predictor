@@ -455,3 +455,114 @@ class RobusPredictor:
             rows.append(row)
 
         return DataFrame(rows)
+
+    def export_cubes_grid(self):
+        """Retorna un DataFrame con la grilla final de cubos aprendida por el modelo.
+        
+        La grilla muestra una fila por cada cubo final generado durante el entrenamiento.
+        Para cada cubo se muestra:
+            - cube_id: identificador público del cubo.
+            - group_id: identificador interno del árbol.
+            - estable: indica si el cubo fue estable.
+            - Pred: predicción aplicada para ese cubo.
+            - regla_completa: conjunto de cortes por mediana que forman el cubo.
+        
+        Returns:
+            pd.DataFrame:
+                DataFrame con la grilla final de cubos.
+        """
+        
+        if not self.is_fitted:
+            raise ValueError(
+                "El modelo debe entrenarse con fit() antes de exportar la grilla de cubos."
+            )
+        
+        if self.cuts is None:
+            raise ValueError("El modelo no contiene cortes entrenados.")
+        
+        if self.cube_id_map is None:
+            raise ValueError("El modelo no contiene cube_id_map. Vuelva a entrenar el modelo.")
+        
+        cuts_by_node = {
+            cut["node_id"]: cut
+            for cut in self.cuts
+        }
+        
+        stable_cubes_by_id = {
+            cube["group_id"]: cube
+            for cube in self.stable_cubes
+        }
+        
+        red_zones_by_id = {
+            cube["group_id"]: cube
+            for cube in self.red_zones
+        }
+        
+        all_group_ids = sorted(
+            set(stable_cubes_by_id.keys()) | set(red_zones_by_id.keys())
+        )
+        
+        def construir_regla_completa(group_id):
+            """Reconstruye la regla completa de un cubo a partir de su group_id.
+            """
+            
+            if group_id == "ROOT":
+                return "Sin cortes"
+            
+            node_id = "ROOT"
+            condiciones = []
+            
+            for direccion in group_id:
+                if node_id not in cuts_by_node:
+                    raise ValueError(
+                        f"No se encontró el corte del nodo '{node_id}' "
+                        f"para reconstruir el cubo '{group_id}'."
+                    )
+                cut = cuts_by_node[node_id]
+                
+                variable = cut["variable"]
+                threshold = cut.get("threshold", cut.get("median_value", cut.get("left_max")))
+                
+                if direccion == "L":
+                    condiciones.append(f"{variable} <= {threshold}")
+                    node_id = cut["left_path"]
+                
+                elif direccion == "R":
+                    condiciones.append(f"{variable} > {threshold}")
+                    node_id = cut["right_path"]
+                
+                else:
+                    raise ValueError(
+                        f"Dirección inválida '{direccion}' en group_id '{group_id}'."
+                    )
+            
+            return " AND ".join(condiciones)
+        
+        rows = []
+        
+        for group_id in all_group_ids:
+            cube_id = self.cube_id_map.get(group_id, group_id)
+            
+            if group_id in stable_cubes_by_id:
+                cube = stable_cubes_by_id[group_id]
+                estable = 1
+                pred = cube.get("prediction_value")
+            
+            else:
+                cube = red_zones_by_id[group_id]
+                estable = 0
+                
+                if self.use_default_value:
+                    pred = self.default_value
+                else:
+                    pred = cube.get("prediction_value")
+            
+            rows.append({
+                "cube_id": cube_id,
+                "group_id": group_id,
+                "estable": estable,
+                "Pred": pred,
+                "regla_completa": construir_regla_completa(group_id),
+            })
+        
+        return DataFrame(rows)

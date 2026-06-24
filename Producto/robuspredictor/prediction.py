@@ -27,24 +27,22 @@ def get_row_group_id(row, cuts_by_node):
 
     while node_id in cuts_by_node:
         cut = cuts_by_node[node_id]
-
+        
         variable = cut["variable"]
-        left_max = cut["left_max"]
-
-        left_path = cut["left_path"]
-        right_path = cut["right_path"]
-
+        threshold = cut.get("threshold", cut.get("left_max"))
+        
+        if variable not in row.index:
+            raise ValueError(
+                f"La variable '{variable}' del corte no existe en la fila recibida."
+            )
+        
         value = row[variable]
-
-        if pd.isna(value):
-            # Misma lógica usada en sort_values(..., na_position="last"):
-            # los nulos quedan al final, por lo tanto se van a la derecha.
-            node_id = right_path
-        elif value <= left_max:
-            node_id = left_path
+        
+        if pd.notna(value) and value <= threshold:
+            node_id = cut["left_path"]
         else:
-            node_id = right_path
-
+            node_id = cut["right_path"]
+    
     return node_id
 
 def predict_cubes_from_cuts(

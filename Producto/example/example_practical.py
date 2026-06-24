@@ -79,13 +79,46 @@ resultado["cube_id"] = cube_ids
 
 print(resultado)
 
-# NUEVA FUNCION OMAIGA: Retorna un dataframe que el usuario puede utilizar para trazabilidad contiene:
-# - ID del cubo que es legible
-# - <variable>_min que es el valor menor que tomó el cubo para esa variable
-# - <variable>_max que es el valor mayor que tomó el cubo para esa variable
-# - Pred prediccion efectuada a ese cubo en particular
-
+# Funcion export_dataframe_cubes()
 MODELO_ENTRENADO_RP = modelo.export_dataframe_cubes()
 print(MODELO_ENTRENADO_RP.head())
+# MODELO_ENTRENADO_RP.to_csv("scoring_comparacion.csv", index=False)
 
-MODELO_ENTRENADO_RP.to_csv("scoring_comparacion.csv", index=False)
+VALIDACION = X_valid.copy()
+
+VALIDACION["pred"] = modelo.predict(X_valid)
+VALIDACION["cube_id"] = modelo.predict_cubes(X_valid)
+
+
+# NUEVA FUNCION OMAIGAAA: Me devuelve las condiciones en las que se hicieron la grilla donde se cortó enb cada variables 
+# - cube_id: entrega el id del cubo 
+# - group_id: el grupo de corte
+# - estable: bool si fue estable o no ese cubo en la pred
+# - regla_completa: donde fue que se cortó realmente como la condicion que hacia Lipari 
+
+cube_grid = modelo.export_cubes_grid()
+cube_grid.to_csv("grilla.csv", index=False)
+
+
+
+# conteo_validacion = (
+#     VALIDACION
+#     .groupby("cube_id")
+#     .size()
+#     .reset_index(name="n_validacion")
+# )
+
+
+# grid_con_validacion = cube_grid.merge(
+#     conteo_validacion,
+#     on="cube_id",
+#     how="left"
+# )
+
+# grid_con_validacion["n_validacion"] = (
+#     grid_con_validacion["n_validacion"]
+#     .fillna(0)
+#     .astype(int)
+# )
+
+# grid_con_validacion.to_csv("grillaconcvalid.csv", index=False)

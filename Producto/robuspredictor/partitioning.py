@@ -1,36 +1,35 @@
 import pandas as pd
 import numpy as np
 
-def median_partition(x, n_min, n_max, verbose=False, random_state=None):
-    """
-    Divide un dataset usando particiones recursivas locales.
 
+def median_partition(x, n_min, n_max, verbose=False, random_state=None):
+    """Divide un dataset usando particiones recursivas locales por mediana.
+    
     La lógica es:
     - En cada nodo se recibe un subconjunto de filas.
-    - Se selecciona la variable según el nivel del árbol.
-    - Se ordena SOLO ese subconjunto por esa variable.
-    - Se corta en dos lotes.
-    - Cada lote conserva todas sus columnas.
-    - La siguiente variable trabaja solamente sobre el lote recibido.
+    - Se selecciona una variable según el nivel del árbol.
+    - Se calcula la mediana local de esa variable dentro del subconjunto.
+    - Se corta usando:
+        variable <= mediana -> izquierda
+        variable > mediana  -> derecha
+    - Si el corte no cumple n_min, se prueba con las siguientes variables.
+    - Si ninguna variable permite un corte válido, el nodo queda como grupo final.
     - Se guardan los cortes para replicarlos sobre otros datasets.
-
-
-    Parámetros:
-    -----------
+    
+    Args:
     x : pd.DataFrame
         Dataset base con filas como elementos y columnas como variables.
-
+    
     n_min : int
         Tamaño mínimo de grupo final.
-
+    
     n_max : int
         Tamaño máximo permitido de grupo final.
-
+        
     verbose : bool
         Si es True, imprime detalle del proceso.
-
-    Retorna:
-    --------
+        
+    Returns:
     dict:
         {
             "groups": dict[str, pd.DataFrame],
@@ -62,23 +61,74 @@ def median_partition(x, n_min, n_max, verbose=False, random_state=None):
     groups = {}
     cuts = []
 
+    def intentar_corte_por_mediana(df_subset, nivel):
+            """Intenta encontrar un corte válido por mediana.
+            
+            Primero prueba la variable correspondiente al nivel.
+            Si no funciona, prueba las siguientes variables en orden cíclico.
+            
+            Returns:
+                dict | None
+            """
+            n_variables = len(variables)
+            
+            for offset in range(n_variables):
+                variable_corte = variables[(nivel + offset) % n_variables]
+                
+                serie = df_subset[variable_corte].dropna()
+                
+                if serie.empty:
+                    continue
+                
+                threshold = serie.median()
+                
+                mascara_izquierda = df_subset[variable_corte].notna() & (
+                    df_subset[variable_corte] <= threshold
+                )
+                
+                izquierda = df_subset[mascara_izquierda].copy()
+                derecha = df_subset[~mascara_izquierda].copy()
+                
+                left_size = len(izquierda)
+                right_size = len(derecha)
+                
+                corte_valido = left_size >= n_min and right_size >= n_min
+                
+                if not corte_valido:
+                    if verbose:
+                        print(
+                            f"[CORTE NO VÁLIDO] Variable {variable_corte} | "
+                            f"Mediana: {threshold} | "
+                            f"Izquierda: {left_size} | Derecha: {right_size} | "
+                            f"n_min={n_min}"
+                        )
+                    continue
+                
+                return {
+                    "variable": variable_corte,
+                    "threshold": threshold,
+                    "median_value": threshold,
+                    "izquierda": izquierda,
+                    "derecha": derecha,
+                    "left_size": left_size,
+                    "right_size": right_size,
+                    "fallback_used": offset > 0,
+                    "variable_offset": offset,
+                }
+                
+            return None
+    
     def cortar_recursivo(df_subset, nivel=0, path=""):
-        """
-        Esta función recibe solamente el lote actual.
-
-        Ejemplo:
-        - ROOT recibe todo x.
-        - L recibe solo las filas que quedaron a la izquierda.
-        - LL recibe solo las filas que quedaron a la izquierda de L.
+        """Recibe el subconjunto local del nodo actual y lo divide por mediana.
         """
         
         tamaño_actual = len(df_subset)
         node_id = path if path != "" else "ROOT"
-
-        # Caso base
-        if tamaño_actual <= n_min:
+        
+        # Caso base: si el grupo ya está dentro del tamaño máximo permitido
+        if tamaño_actual <= n_max:
             groups[node_id] = df_subset.copy()
-
+            
             if verbose:
                 print(
                     f"[FIN] Nodo {node_id} | "
@@ -86,13 +136,13 @@ def median_partition(x, n_min, n_max, verbose=False, random_state=None):
                     f"Tamaño: {tamaño_actual} | "
                     f"Índices: {list(df_subset.index)}"
                 )
-                
+            
             return
         
-        # Evita cortar si el corte dejaría grupos menores al mínimo
+        # Protección: si ni siquiera un corte perfecto podría cumplir n_min
         if tamaño_actual // 2 < n_min:
             groups[node_id] = df_subset.copy()
-        
+            
             if verbose:
                 print(
                     f"[FIN SIN CORTE] Nodo {node_id} | "
@@ -101,45 +151,53 @@ def median_partition(x, n_min, n_max, verbose=False, random_state=None):
                     f"No se puede dividir sin dejar grupos menores a n_min | "
                     f"Índices: {list(df_subset.index)}"
                 )
+                
+            return
+        
+        resultado_corte = intentar_corte_por_mediana(df_subset, nivel)
+        
+        if resultado_corte is None:
+            groups[node_id] = df_subset.copy()
+            
+            if verbose:
+                print(
+                    f"[FIN SIN CORTE VÁLIDO] Nodo {node_id} | "
+                    f"Nivel {nivel} | "
+                    f"Tamaño: {tamaño_actual} | "
+                    f"Ninguna variable permitió cortar por mediana respetando n_min."
+                )
             
             return
         
-        variable_corte = variables[nivel % len(variables)]
-
-        # Ordenar por variable_corte con tiebreaker aleatorio para romper empates.
-        # sort_values(kind="mergesort") es estable: en variables con muchos valores
-        # repetidos (ej. var5, var11-13 ≈ 0) hereda el orden del nivel padre,
-        # creando particiones implícitas por niveles anteriores.
-        # np.lexsort + ruido aleatorio garantiza que los empates se resuelvan al
-        # azar, independientemente del orden recibido.
-        mask_na   = df_subset[variable_corte].isna()
-        df_no_na  = df_subset[~mask_na]
-        df_na     = df_subset[mask_na]
-
-        if len(df_no_na) > 0:
-            rng        = np.random.default_rng(random_state)
-            tiebreaker = rng.random(len(df_no_na))
-            valores    = df_no_na[variable_corte].values.astype(float)
-            orden      = np.lexsort((tiebreaker, valores))
-            df_ordenado = pd.concat([df_no_na.iloc[orden], df_na])
-        else:
-            df_ordenado = df_na
-
-        punto_corte = tamaño_actual // 2
-
-        izquierda = df_ordenado.iloc[:punto_corte].copy()
-        derecha = df_ordenado.iloc[punto_corte:].copy()
-
+        variable_corte = resultado_corte["variable"]
+        threshold = resultado_corte["threshold"]
+        median_value = resultado_corte["median_value"]
+        izquierda = resultado_corte["izquierda"]
+        derecha = resultado_corte["derecha"]
+        
         left_path = path + "L"
         right_path = path + "R"
         
-        left_max = izquierda[variable_corte].max()
-        right_min = derecha[variable_corte].min()
-
+        left_max = (
+            izquierda[variable_corte].max()
+            if not izquierda.empty and variable_corte in izquierda.columns
+            else None
+        )
+        
+        right_min = (
+            derecha[variable_corte].min()
+            if not derecha.empty and variable_corte in derecha.columns
+            else None
+        )
+        
+        n_equal_threshold = int((df_subset[variable_corte] == threshold).sum())
+        
         cut_info = {
             "node_id": node_id,
             "level": nivel,
             "variable": variable_corte,
+            "threshold": threshold,
+            "median_value": median_value,
             "left_path": left_path,
             "right_path": right_path,
             "left_size": len(izquierda),
@@ -148,61 +206,52 @@ def median_partition(x, n_min, n_max, verbose=False, random_state=None):
             "right_indices": list(derecha.index),
             "left_max": left_max,
             "right_min": right_min,
-            "cut_position": punto_corte,
+            "n_equal_threshold": n_equal_threshold,
+            "fallback_used": resultado_corte["fallback_used"],
+            "variable_offset": resultado_corte["variable_offset"],
             "rule": (
-                f"{variable_corte} <= {left_max} va a izquierda; "
-                f"{variable_corte} > {left_max} va a derecha"
+                f"{variable_corte} <= {threshold} va a izquierda; "
+                f"{variable_corte} > {threshold} va a derecha"
             )
         }
-
+        
         cuts.append(cut_info)
-
+        
         if verbose:
-            print("\n[CORTE]")
+            print("\n[CORTE POR MEDIANA]")
             print(f"Nodo: {node_id}")
             print(f"Nivel: {nivel}")
             print(f"Variable usada: {variable_corte}")
+            print(f"Mediana / threshold: {threshold}")
             print(f"Tamaño recibido: {tamaño_actual}")
-            print(f"Índices recibidos: {list(df_subset.index)}")
-
-            print("\nSubconjunto recibido:")
-            print(df_subset)
-
-            print(f"\nOrden local por {variable_corte}:")
-            for idx, value in df_ordenado[variable_corte].items():
-                print(f"  idx {idx} -> {variable_corte} = {value}")
-
-            print(f"\nPunto de corte: {punto_corte}")
-
-            print(f"\nIzquierda {left_path}:")
-            print(izquierda)
-
-            print(f"\nDerecha {right_path}:")
-            print(derecha)
-
-            print(
-                f"\nRegla replicable: "
-                f"{variable_corte} <= {left_max} -> {left_path}; "
-                f"{variable_corte} > {left_max} -> {right_path}"
-            )
-
+            print(f"Izquierda {left_path}: {len(izquierda)} filas")
+            print(f"Derecha {right_path}: {len(derecha)} filas")
+            print(f"Regla replicable: {cut_info['rule']}")
+        
         cortar_recursivo(izquierda, nivel + 1, left_path)
         cortar_recursivo(derecha, nivel + 1, right_path)
-
+    
     cortar_recursivo(x, nivel=0, path="")
-
+    
     grupos_sobre_maximo = {
         group_id: grupo
         for group_id, grupo in groups.items()
         if len(grupo) > n_max
     }
-
+    
     if grupos_sobre_maximo:
+        detalle = {
+            group_id: len(grupo)
+            for group_id, grupo in grupos_sobre_maximo.items()
+        }
+        
         raise ValueError(
             f"Existen {len(grupos_sobre_maximo)} grupos con tamaño mayor "
-            f"a n_max={n_max}."
+            f"a n_max={n_max}. Detalle: {detalle}. "
+            "Esto puede ocurrir si ninguna variable permitió un corte por mediana "
+            "que respetara n_min."
         )
-
+    
     return {
         "groups": groups,
         "cuts": cuts,
@@ -211,22 +260,18 @@ def median_partition(x, n_min, n_max, verbose=False, random_state=None):
 
 
 def apply_median_cuts(x, cuts, verbose=False):
-    """
-    Aplica sobre un nuevo dataset los cortes aprendidos desde otro dataset.
-
-    Parámetros:
-    -----------
+    """ Aplica sobre un nuevo dataset los cortes aprendidos desde otro dataset.
+    Args:
     DATASET : pd.DataFrame
         Nuevo dataset que se quiere particionar usando los mismos cortes.
-
+    
     cuts : list[dict]
         Cortes generados por median_partition(...).
-
+    
     verbose : bool
         Si es True, imprime el detalle de aplicación de cortes.
-
-    Retorna:
-    --------
+    
+    Returns:
     dict[str, pd.DataFrame]
         Grupos finales generados usando los mismos cortes.
     """
@@ -245,11 +290,7 @@ def apply_median_cuts(x, cuts, verbose=False):
     groups = {}
 
     def aplicar_recursivo(df_subset, node_id="ROOT"):
-        """
-        Aplica el árbol aprendido.
-
-        Cada nodo recibe solamente el subconjunto que llegó a ese nodo,
-        igual que en el entrenamiento.
+        """Aplica el árbol aprendido.
         """
         # Si este nodo no tiene corte, es un grupo final
         if node_id not in cuts_by_node:
@@ -261,13 +302,15 @@ def apply_median_cuts(x, cuts, verbose=False):
                     f"Tamaño: {len(df_subset)} | "
                     f"Índices: {list(df_subset.index)}"
                 )
-
+            
             return
-
+        
         cut = cuts_by_node[node_id]
 
         variable = cut["variable"]
-        left_max = cut["left_max"]
+        
+        threshold = cut.get("threshold", cut.get("left_max"))
+        
         left_path = cut["left_path"]
         right_path = cut["right_path"]
         
@@ -275,9 +318,9 @@ def apply_median_cuts(x, cuts, verbose=False):
             raise ValueError(
                 f"La variable '{variable}' del corte no existe en el dataset recibido."
             )
-            
+        
         mascara_izquierda = df_subset[variable].notna() & (
-            df_subset[variable] <= left_max
+            df_subset[variable] <= threshold
         )
         izquierda = df_subset[mascara_izquierda].copy()
         derecha = df_subset[~mascara_izquierda].copy()
@@ -286,11 +329,11 @@ def apply_median_cuts(x, cuts, verbose=False):
             print("\n[APLICANDO CORTE]")
             print(f"Nodo: {node_id}")
             print(f"Variable: {variable}")
-            print(f"Regla: {variable} <= {left_max}")
+            print(f"Threshold: {threshold}")
+            print(f"Regla: {variable} <= {threshold}")
             print(f"Tamaño recibido: {len(df_subset)}")
-            print(f"Índices recibidos: {list(df_subset.index)}")
-            print(f"Izquierda {left_path}: {len(izquierda)} filas | índices {list(izquierda.index)}")
-            print(f"Derecha {right_path}: {len(derecha)} filas | índices {list(derecha.index)}")
+            print(f"Izquierda {left_path}: {len(izquierda)} filas")
+            print(f"Derecha {right_path}: {len(derecha)} filas")
 
         aplicar_recursivo(izquierda, left_path)
         aplicar_recursivo(derecha, right_path)
