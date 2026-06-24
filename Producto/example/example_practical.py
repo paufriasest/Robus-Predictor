@@ -18,43 +18,22 @@ y_valid = VALIDACION[target]
 ARRIENDO_REAL= VALIDACION["ARRIENDO"]
 
 modelo = RobusPredictor(
-    n_min= 3, #LIMITES INCLUSIVOS
-    n_max= 4, #LIMITES INCLUSIVOS  n_min <= tamaño_del_grupo <= n_max
+    n_min= 3, 
+    n_max= 4, 
     n_dom= 2,
     mean_min= 0.05,
     mean_max=  16.0,
     std_min=  0.0,
     std_max=  16.0,
-    use_default_value=True, #por default viene true asique se puede no llamar
-    default_value= 0, #por default viene en 0 asi que se puede no llamar
-    verbose=False
+    default_value= 0
 )
 
 # ── Entrenamiento ─────────────────────────────────────────────────────────────
 modelo.fit(X_train, y_train)
 
-print("\nResumen de dominios:")
-for i, domain in enumerate(modelo.domains, start=1):
-    print(f"\nDominio {i}")
-    print(f"X shape: {domain['x'].shape}")
-    print(f"y shape: {domain['y'].shape}")
-    print(f"Cantidad de grupos: {len(domain['groups'])}")
-
-print("\nCubos estables:")
-for cube in modelo.stable_cubes:
-    print(cube)
-
-print("\nZonas rojas:")
-for zone in modelo.red_zones:
-    print(zone)
-
-
 # ── Prediccion ────────────────────────────────────────────────────────────────
 resultado = X_valid.copy()
 resultado["pred"] = modelo.predict(X_valid)
-
-print("\nPredicciones:")
-print(resultado)
 
 # ── Exportar checkpoint ───────────────────────────────────────────────────────
 
@@ -64,28 +43,11 @@ modelo.export_checkpoint(
     y_valid=y_valid
 )
 
-# Para formato csv se exportara con nombre checkpoint_numeroHoja_nombreHojaCalculo_robuspredictor.csv
-modelo.export_checkpoint(
-    X_valid=X_valid,
-    y_valid=y_valid,
-    file_format="csv"
-)
-
-
 # Exportar el excel que sirve para la trazabilidad de las predicciones efectuadas, se le puede agregar el dato real que es nuestra var de comparacion
 scoring_df = modelo.export_prediction_checkpoint(
     X_valid=X_valid,
     y_valid=y_valid,
     dato_real=ARRIENDO_REAL
-)
-
-# Formato para csv cambiando el nombre a mi_prediccion.csv
-scoring_df2 = modelo.export_prediction_checkpoint(
-    X_valid=X_valid,
-    y_valid=y_valid,
-    file_name="mi_prediccion",
-    dato_real=ARRIENDO_REAL,
-    file_format="csv"
 )
 
 # ── Funciones Utiles ───────────────────────────────────────────────────────
@@ -125,3 +87,5 @@ print(resultado)
 
 MODELO_ENTRENADO_RP = modelo.export_dataframe_cubes()
 print(MODELO_ENTRENADO_RP.head())
+
+MODELO_ENTRENADO_RP.to_csv("scoring_comparacion.csv", index=False)

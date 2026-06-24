@@ -260,6 +260,7 @@ class RobusPredictor:
             file_format=file_format,
             validacion_groups=validacion_groups,
             y_validacion=y_valid,
+            cube_id_map=self.cube_id_map,
         )
 
         return self.checkpoint
