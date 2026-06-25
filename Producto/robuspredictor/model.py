@@ -6,6 +6,7 @@ from .domains import split_training_domains
 from .checkpoint import export_checkpoint, build_and_export_prediction_checkpoint
 from .metrics import calculate_precision_top_percentage
 from pandas import DataFrame
+import json
 
 
 class RobusPredictor:
@@ -511,6 +512,7 @@ class RobusPredictor:
             
             node_id = "ROOT"
             condiciones = []
+            cuts_path = []
             
             for direccion in group_id:
                 if node_id not in cuts_by_node:
@@ -518,25 +520,46 @@ class RobusPredictor:
                         f"No se encontró el corte del nodo '{node_id}' "
                         f"para reconstruir el cubo '{group_id}'."
                     )
+                
                 cut = cuts_by_node[node_id]
                 
                 variable = cut["variable"]
-                threshold = cut.get("threshold", cut.get("median_value", cut.get("left_max")))
+                threshold = cut.get("threshold", cut.get("median_value", cut.get("left_max"))
+                )
                 
                 if direccion == "L":
+                    operator = "<="
                     condiciones.append(f"{variable} <= {threshold}")
-                    node_id = cut["left_path"]
+                    next_node_id = cut["left_path"]
                 
                 elif direccion == "R":
+                    operator = ">"
                     condiciones.append(f"{variable} > {threshold}")
-                    node_id = cut["right_path"]
+                    next_node_id = cut["right_path"]
                 
                 else:
                     raise ValueError(
                         f"Dirección inválida '{direccion}' en group_id '{group_id}'."
                     )
+                cuts_path.append({
+                    "level": cut.get("level"),
+                    "node_id": node_id,
+                    "variable": variable,
+                    "operator": operator,
+                    "threshold": threshold,
+                    "direction": direccion,
+                    "left_path": cut.get("left_path"),
+                    "right_path": cut.get("right_path"),
+                    "left_size": cut.get("left_size"),
+                    "right_size": cut.get("right_size"),
+                    "left_max": cut.get("left_max"),
+                    "right_min": cut.get("right_min"),
+                    "rule": cut.get("rule"),
+                })
+                
+                node_id = next_node_id
             
-            return " AND ".join(condiciones)
+            return " AND ".join(condiciones), cuts_path
         
         rows = []
         
@@ -557,12 +580,15 @@ class RobusPredictor:
                 else:
                     pred = cube.get("prediction_value")
             
+            regla_completa, cuts_path = construir_regla_completa(group_id)
+            
             rows.append({
                 "cube_id": cube_id,
                 "group_id": group_id,
                 "estable": estable,
                 "Pred": pred,
-                "regla_completa": construir_regla_completa(group_id),
+                "reglas_grilla_cubo": regla_completa,
+                "cortes_reales_cubo": json.dumps(cuts_path, ensure_ascii=False),
             })
         
         return DataFrame(rows)
