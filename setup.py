@@ -12,7 +12,9 @@ setup(
         'numpy==1.24.4',
         'pandas==2.0.3',
         'scikit-learn==1.3.2',
-        'joblib==1.4.2'],
+        'joblib==1.4.2',
+        'openpyxl',
+        ],
     # external packages as dependencies
     python_requires="==3.8.10"
 )

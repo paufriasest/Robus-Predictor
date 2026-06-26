@@ -31,6 +31,7 @@ En la versión actual el modelo consta de cinco etapas principales:
 - **joblib** 1.4.2
 - **numpy** 1.24.4
 - **pandas** 2.0.3
+- **openpyxl** (requerida para exportar checkpoints a Excel .xlsx)
 
 
 # Instalación 
@@ -91,15 +92,8 @@ Robus-Predictor/
 │       ├── stability.py
 │       └── utils.py
 │
-│    └──test/
-│       ├── Benchmark/
-│       ├── robus_predictor_010.py
-│       └── robus_predictor_020.py
-│
-├── checkpoint_robuspredictor.xlsx
 ├── README.md
 ├── requirements.txt
-├── scoring_robuspredictor.xlsx
 └── setup.py
 
 ```
@@ -158,27 +152,24 @@ modelo = RobusPredictor(
 # Entrenamiento
 modelo.fit(X_train, y_train)
 
-
 # Predicción
 predicciones = modelo.predict(X_valid)
 
-print(predicciones)
-
 # Export checkpoint datos entrenamiento
 modelo.export_checkpoint(
-    path="checkpoint_robuspredictor.xlsx",
-    file_format="xlsx",
     X_valid=X_valid,
     y_valid=y_valid,
+    file_name="checkpoint_robuspredictor",
+    file_format="xlsx",
 )
 
 # Export checkpoint datos validación
 modelo.export_prediction_checkpoint(
-    X=X_valid,
-    y=y_valid,
-    path="scoring_robuspredictor.xlsx",
-    dato_real=VAR_BINARIA_REAL,
-    file_format="xlsx"
+    X_valid=X_valid,
+    y_valid=y_valid,
+    dato_real=ARRIENDO_REAL,
+    file_name="scoring_robuspredictor",
+    file_format="xlsx",
 )
 
 # Función para obtner el mejor N% 
@@ -187,7 +178,18 @@ resultado_top5 = modelo.best_percentage(
     top_pct=0.05
 )
 
+# Función para asignar cada registro al cubo correspondiente del modelo.
+cube_ids = modelo.predict_cubes(X_valid)
+
+# Función de retorna un dataframe con los cubos de la predicción, en conjunto sus valores minimos y maximos por variables
+cubes_df = modelo.export_dataframe_cubes()
+
+# Función que retorna la grilla utilziada en entrenamiento
+cube_grid = modelo.export_cubes_grid()
+
 ```
+
+Para mayor información de uso consultar RobusPredictor.md dentro de la carpeta de Documentación.
 ## Versionamiento
 Versión actual: 
 ```

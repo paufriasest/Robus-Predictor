@@ -32,8 +32,8 @@ y_train = pd.Series([
 
 # ── Instancia del modelo ──────────────────────────────────────────────────────
 modelo = RobusPredictor(
-    n_min=2, #LIMITES INCLUSIVOS
-    n_max=4, #LIMITES INCLUSIVOS  n_min <= tamaño_del_grupo <= n_max
+    n_min=2,
+    n_max=4,
     n_dom=2,
     mean_max=3.0,
     mean_min=1.0,
@@ -45,21 +45,6 @@ modelo = RobusPredictor(
 
 # ── Entrenamiento ─────────────────────────────────────────────────────────────
 modelo.fit(X_train, y_train)
-
-print("\nResumen de dominios:")
-for i, domain in enumerate(modelo.domains, start=1):
-    print(f"\nDominio {i}")
-    print(f"X shape: {domain['x'].shape}")
-    print(f"y shape: {domain['y'].shape}")
-    print(f"Cantidad de grupos: {len(domain['groups'])}")
-
-print("\nCubos estables:")
-for cube in modelo.stable_cubes:
-    print(cube)
-
-print("\nZonas rojas:")
-for zone in modelo.red_zones:
-    print(zone)
 
 # ── Dataset de validacion ─────────────────────────────────────────────────────
 # X_valid contiene las variables predictoras de los registros a validar.
@@ -78,24 +63,5 @@ y_valid = pd.Series([1.60, 2.58, 1.75])
 resultado = X_valid.copy()
 resultado["pred"] = modelo.predict(X_valid)
 
-print("\nPredicciones:")
 print(resultado)
 
-# ── Exportar checkpoint ───────────────────────────────────────────────────────
-# Se pasan X_valid e y_valid para que el checkpoint incluya las columnas
-# n_validacion, prom_target_validacion, std_target_validacion y
-# prom_target_consolidado. Si no se pasan, esas columnas apareceran como null.
-modelo.export_checkpoint(
-    path="checkpoint_robuspredictor.xlsx",
-    file_format="xlsx",
-    X_valid=X_valid,
-    y_valid=y_valid,
-)
-
-# Exportar el excel que sirve para la trazabilidad de las predicciones efectuadas, ocupa los mismos parametros que el excel anterior
-modelo.export_prediction_checkpoint(
-    X=X_valid,
-    y=y_valid,
-    path="predicciones_robuspredictor.xlsx",
-    file_format="xlsx"
-)
